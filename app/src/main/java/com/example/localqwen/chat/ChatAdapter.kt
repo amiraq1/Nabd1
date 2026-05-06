@@ -52,7 +52,7 @@ class ChatAdapter(
         }
 
         holder.itemView.setOnLongClickListener {
-            copyMessage(cleanDisplayMessage(message.text))
+            copyMessage(message.text)
             true
         }
     }
@@ -96,7 +96,7 @@ class ChatAdapter(
         private val messageText: TextView = itemView.findViewById(R.id.tvMessageText)
 
         fun bind(message: ChatMessage) {
-            messageText.text = cleanDisplayMessage(message.text)
+            messageText.text = message.text
         }
     }
 
@@ -104,7 +104,7 @@ class ChatAdapter(
         private val messageText: TextView = itemView.findViewById(R.id.tvMessageText)
 
         fun bind(message: ChatMessage) {
-            messageText.text = cleanDisplayMessage(message.text)
+            messageText.text = message.text
         }
     }
 
@@ -120,9 +120,5 @@ class ChatAdapter(
         private const val VIEW_TYPE_USER = 1
         private const val VIEW_TYPE_ASSISTANT = 2
         private const val VIEW_TYPE_SYSTEM = 3
-
-        private fun cleanDisplayMessage(rawText: String): String {
-            return rawText.trim()
-        }
     }
 }

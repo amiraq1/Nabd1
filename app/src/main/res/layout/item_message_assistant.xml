@@ -1,31 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="14dp"
-    android:orientation="vertical"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp">
+    android:layoutDirection="ltr"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
 
-    <TextView
-        android:id="@+id/tvAssistantLabel"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="4dp"
-        android:text="نبض"
-        android:textColor="#FF7000"
+        android:layout_gravity="start"
         android:gravity="start"
-        android:textDirection="locale"
-        android:textSize="14sp"
-        android:textStyle="bold" />
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/tvMessageText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="start"
-        android:lineSpacingExtra="6dp"
-        android:textColor="@android:color/white"
-        android:textDirection="locale"
-        android:textSize="16sp" />
-</LinearLayout>
+        <TextView
+            android:id="@+id/tvAssistantLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:gravity="start"
+            android:text="نبض"
+            android:textAlignment="viewStart"
+            android:textColor="#FF7000"
+            android:textDirection="locale"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvMessageText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_bubble_assistant"
+            android:gravity="start"
+            android:lineSpacingExtra="5dp"
+            android:maxWidth="300dp"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="10dp"
+            android:textAlignment="viewStart"
+            android:textColor="#FFFFFF"
+            android:textDirection="locale"
+            android:textSize="16sp" />
+    </LinearLayout>
+</FrameLayout>
