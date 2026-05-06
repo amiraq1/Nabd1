@@ -31,10 +31,22 @@ class DocumentStore(
     }
 
     fun saveDocument(document: LocalDocument) {
+        val normalizedText = document.extractedText
+            .replace(Regex("[\\t\\x0B\\f\\r ]+"), " ")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+            .truncateDocumentText(MAX_DOCUMENT_TEXT_CHARS)
+        if (normalizedText.isBlank()) return
+
         val updated = getDocuments()
             .filterNot { it.id == document.id }
             .toMutableList()
-            .apply { add(0, document) }
+            .apply {
+                add(
+                    0,
+                    document.copy(extractedText = normalizedText)
+                )
+            }
         saveDocuments(updated)
     }
 
@@ -83,5 +95,10 @@ class DocumentStore(
     companion object {
         const val KEY_LOCAL_DOCUMENTS_JSON = "local_documents_json"
         const val KEY_SELECTED_DOCUMENT_ID = "selected_document_id"
+        private const val MAX_DOCUMENT_TEXT_CHARS = 200_000
     }
+}
+
+private fun String.truncateDocumentText(maxChars: Int): String {
+    return if (length <= maxChars) this else take(maxChars) + "\n(تم اختصار النص لطوله)"
 }
