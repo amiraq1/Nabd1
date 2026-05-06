@@ -6,7 +6,7 @@
     <color name="nabd_primary">#FF7000</color>
     <color name="nabd_on_primary">#FFFFFF</color>
     <color name="nabd_on_surface">#FFFFFF</color>
-    <color name="nabd_text_secondary">#6A6A6A</color>
+    <color name="nabd_text_secondary">#A0A0A0</color>
     <color name="nabd_success">#10B981</color>
     <color name="nabd_error">#EF4444</color>
     <color name="nabd_info">#3B82F6</color>

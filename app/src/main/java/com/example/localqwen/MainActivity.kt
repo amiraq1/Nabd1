@@ -1,5 +1,8 @@
 package com.example.localqwen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -84,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private val pickModelRequestCode = 200
     private val pickImageRequestCode = 201
     private val pickPdfRequestCode = 202
+    private val settingsRequestCode = 203
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val chatMessages = mutableListOf<ChatMessage>()
     private val supportedModels = ModelManager.SUPPORTED_MODELS
@@ -219,6 +223,14 @@ class MainActivity : AppCompatActivity() {
         return "المحادثة: ${session.title}\n$base"
     }
 
+    private fun currentModelStatusLabel(): String {
+        return when {
+            engine != null && loadedModelId == selectedModel.id -> "مشغّل"
+            modelManager.isModelReady(selectedModel) -> "غير مشغّل"
+            else -> "غير مستورد"
+        }
+    }
+
     private fun updateButtons() {
         val hasInput = inputView.text?.toString()?.trim()?.isNotEmpty() == true
         val busy = isGenerating || isProcessingFile
@@ -254,6 +266,65 @@ class MainActivity : AppCompatActivity() {
 
     private fun getSelectedDocument(): LocalDocument? {
         return documentStore.getDocument(documentStore.getSelectedDocumentId())
+    }
+
+    private fun currentDocumentAnswerLength(): String {
+        return chatSessionStore.getActiveOrCreateSession().documentAnswerLength ?: "short"
+    }
+
+    private fun documentAnswerLengthLabel(value: String): String {
+        return when (value) {
+            "medium" -> "متوسط"
+            "long" -> "مفصل"
+            else -> "مختصر"
+        }
+    }
+
+    private fun updateDocumentAnswerLength(value: String) {
+        val session = chatSessionStore.getActiveOrCreateSession()
+        session.documentAnswerLength = value
+        session.updatedAt = System.currentTimeMillis()
+        chatSessionStore.saveSession(session)
+        setStatusSuccess("تم ضبط طول إجابة المستند: ${documentAnswerLengthLabel(value)}")
+    }
+
+    private fun copyToClipboard(label: String, text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
+
+    private fun buildConversationPlainText(): String {
+        return chatMessages.joinToString("\n\n") { message ->
+            when (message.role) {
+                Role.USER -> "أنت:\n${message.text}"
+                Role.ASSISTANT -> "نبض:\n${message.text}"
+                Role.SYSTEM -> message.text
+            }
+        }.trim()
+    }
+
+    private fun copyFullConversation() {
+        val text = buildConversationPlainText()
+        if (text.isBlank()) {
+            setStatusError("لا توجد محادثة لنسخها")
+            Toast.makeText(this, "لا توجد محادثة لنسخها", Toast.LENGTH_SHORT).show()
+            return
+        }
+        copyToClipboard("محادثة نبض", text)
+        setStatusSuccess("تم نسخ المحادثة")
+        Toast.makeText(this, "تم نسخ المحادثة", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyLastAssistantResponse() {
+        val text = lastAssistantResponse.trim()
+        if (text.isBlank()) {
+            setStatusError("لا يوجد رد لنسخه")
+            Toast.makeText(this, "لا يوجد رد لنسخه", Toast.LENGTH_SHORT).show()
+            return
+        }
+        copyToClipboard("آخر رد", text)
+        setStatusSuccess("تم نسخ آخر رد")
+        Toast.makeText(this, "تم نسخ آخر رد", Toast.LENGTH_SHORT).show()
     }
 
     private fun getDisplayName(uri: Uri): String? {
@@ -652,7 +723,7 @@ class MainActivity : AppCompatActivity() {
                     messagesJson = messagesJson,
                     lastAssistantResponse = snapshotAssistantResponse,
                     selectedDocumentId = selectedDocumentId,
-                    documentAnswerLength = "short",
+                    documentAnswerLength = currentDocumentAnswerLength(),
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage
                 )
@@ -766,30 +837,18 @@ class MainActivity : AppCompatActivity() {
 
         addOptionRow(
             sheet.findViewById(R.id.sectionModel),
-            "◉",
-            "اختيار النموذج",
-            subtitle = modelDescription(selectedModel)
-        ) {
-            dialog.dismiss()
-            showModelSelectionDialog()
-        }
-        addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
             if (isModelActive) "■" else "▶",
-            if (isModelActive) "إيقاف نبض" else "تشغيل نبض"
+            if (isModelActive) "إيقاف نبض" else "تشغيل نبض",
+            subtitle = currentModelStatusLabel()
         ) {
             dialog.dismiss()
             if (isModelActive) unloadModel() else loadModel()
         }
         addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
-            "⇩",
-            "استيراد النموذج"
+            sheet.findViewById(R.id.sectionTools),
+            "◈",
+            "مركز الأدوات"
         ) {
-            dialog.dismiss()
-            openFilePicker()
-        }
-        addOptionRow(sheet.findViewById(R.id.sectionTools), "◈", "مركز الأدوات") {
             dialog.dismiss()
             showToolsCenter()
         }
@@ -797,17 +856,23 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
             showAttachmentTypeDialog()
         }
-        addOptionRow(
-            sheet.findViewById(R.id.sectionConversation),
-            "×",
-            "مسح",
-            titleColor = ContextCompat.getColor(this, R.color.nabd_error),
-            iconColor = ContextCompat.getColor(this, R.color.nabd_error)
-        ) {
+        addOptionRow(sheet.findViewById(R.id.sectionTools), "≡", "الإعدادات") {
             dialog.dismiss()
-            confirmClearChat()
+            openSettingsPage()
         }
-        addOptionRow(sheet.findViewById(R.id.sectionInfo), "؟", "حول نبض") {
+        addOptionRow(sheet.findViewById(R.id.sectionConversation), "＋", "محادثة جديدة") {
+            dialog.dismiss()
+            startNewChat()
+        }
+        addOptionRow(sheet.findViewById(R.id.sectionConversation), "◷", "سجل المحادثات") {
+            dialog.dismiss()
+            showChatHistoryDialog()
+        }
+        addOptionRow(
+            sheet.findViewById(R.id.sectionInfo),
+            "؟",
+            "حول نبض"
+        ) {
             dialog.dismiss()
             showAboutDialog()
         }
@@ -825,6 +890,20 @@ class MainActivity : AppCompatActivity() {
             behavior.isDraggable = true
         }
         dialog.show()
+    }
+
+    private fun openSettingsPage() {
+        val session = chatSessionStore.getActiveOrCreateSession()
+        val intent = SettingsActivity.createIntent(
+            context = this,
+            modelDescription = modelDescription(selectedModel),
+            modelStatus = currentModelStatusLabel(),
+            documentAnswerLength = currentDocumentAnswerLength(),
+            selectedDocumentTitle = getSelectedDocument()?.title,
+            sessionTitle = session.title,
+            appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+        )
+        startActivityForResult(intent, settingsRequestCode)
     }
 
     private fun showToolsCenter() {
@@ -914,6 +993,30 @@ class MainActivity : AppCompatActivity() {
             )
             .setPositiveButton("إغلاق", null)
             .show()
+    }
+
+    private fun handleSettingsAction(data: Intent?) {
+        val action = data?.getStringExtra(SettingsActivity.EXTRA_ACTION) ?: return
+        when (action) {
+            SettingsActivity.ACTION_SELECT_MODEL -> showModelSelectionDialog()
+            SettingsActivity.ACTION_IMPORT_MODEL -> openFilePicker()
+            SettingsActivity.ACTION_OPEN_CHAT_HISTORY -> showChatHistoryDialog()
+            SettingsActivity.ACTION_OPEN_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
+            SettingsActivity.ACTION_SET_DOCUMENT_ANSWER_LENGTH -> {
+                val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
+                updateDocumentAnswerLength(value)
+                saveActiveSessionDebounced(immediate = true)
+            }
+            SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
+                documentStore.clearSelectedDocumentId()
+                saveActiveSessionDebounced(immediate = true)
+                setStatusSuccess("تم إلغاء اختيار المستند")
+            }
+            SettingsActivity.ACTION_CLEAR_CHAT -> confirmClearChat()
+            SettingsActivity.ACTION_COPY_CHAT -> copyFullConversation()
+            SettingsActivity.ACTION_COPY_LAST_RESPONSE -> copyLastAssistantResponse()
+            SettingsActivity.ACTION_ABOUT -> showAboutDialog()
+        }
     }
 
     private fun showPhoneToolConfirmation(input: String, intents: List<PhoneToolIntent>) {
@@ -1380,6 +1483,10 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
+        if (requestCode == settingsRequestCode) {
+            handleSettingsAction(data)
+            return
+        }
         val uri = data?.data ?: return
         when (requestCode) {
             pickModelRequestCode -> importModelFromUri(uri)

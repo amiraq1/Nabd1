@@ -5,27 +5,28 @@
     android:layout_height="wrap_content"
     android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
-    android:minHeight="56dp"
+    android:layoutDirection="locale"
+    android:minHeight="60dp"
     android:orientation="horizontal"
-    android:paddingStart="12dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="12dp"
-    android:paddingBottom="8dp">
+    android:paddingStart="14dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="10dp">
 
     <TextView
         android:id="@+id/tvOptionIcon"
-        android:layout_width="28dp"
+        android:layout_width="30dp"
         android:layout_height="wrap_content"
         android:alpha="1"
         android:gravity="center"
-        android:textColor="#A0A0A0"
+        android:textColor="@color/nabd_text_secondary"
         android:textDirection="locale"
         android:textSize="17sp" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="14dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -34,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:alpha="1"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/nabd_on_surface"
             android:textDirection="locale"
             android:textSize="18sp" />
 
@@ -42,9 +43,9 @@
             android:id="@+id/tvOptionSubtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="3dp"
             android:alpha="1"
-            android:textColor="#B0B0B0"
+            android:textColor="@color/nabd_text_secondary"
             android:textDirection="locale"
             android:textSize="14sp"
             android:visibility="gone" />
