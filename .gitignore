@@ -12,6 +12,8 @@ local.properties
 *.gguf
 *.bin
 *.safetensors
+files/models/embedder/
+files/embeddings/
 
 .idea/
 *.iml

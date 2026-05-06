@@ -37,6 +37,11 @@ import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.model.ModelManager
 import com.example.localqwen.model.ModelManager.SupportedModel
 import com.example.localqwen.prompt.NabdSystemPrompt
+import com.example.localqwen.rag.EmbeddingModelManager
+import com.example.localqwen.rag.EmbeddingStore
+import com.example.localqwen.rag.RagMode
+import com.example.localqwen.rag.RetrievedChunk
+import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
@@ -86,11 +91,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var documentStore: DocumentStore
     private lateinit var chatSessionStore: ChatSessionStore
     private lateinit var phoneToolManager: PhoneToolManager
+    private lateinit var embeddingModelManager: EmbeddingModelManager
+    private lateinit var embeddingStore: EmbeddingStore
+    private lateinit var semanticRetriever: SemanticRetriever
 
     private val pickModelRequestCode = 200
     private val pickImageRequestCode = 201
     private val pickPdfRequestCode = 202
     private val settingsRequestCode = 203
+    private val pickEmbeddingModelRequestCode = 204
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val chatMessages = mutableListOf<ChatMessage>()
     private val supportedModels = ModelManager.SUPPORTED_MODELS
@@ -123,6 +132,9 @@ class MainActivity : AppCompatActivity() {
         documentStore = DocumentStore(preferences)
         chatSessionStore = ChatSessionStore(preferences)
         phoneToolManager = PhoneToolManager(this)
+        embeddingModelManager = EmbeddingModelManager(this)
+        embeddingStore = EmbeddingStore(this)
+        semanticRetriever = SemanticRetriever(embeddingModelManager, embeddingStore)
         chatAdapter = ChatAdapter(this)
 
         statusView = findViewById(R.id.statusTextView)
@@ -363,11 +375,28 @@ class MainActivity : AppCompatActivity() {
         return chatSessionStore.getActiveOrCreateSession().documentAnswerLength ?: "short"
     }
 
+    private fun currentRagMode(): RagMode {
+        return runCatching {
+            RagMode.valueOf(
+                preferences.getString(KEY_RAG_SEARCH_MODE, RagMode.AUTO.name)?.uppercase(Locale.US)
+                    ?: RagMode.AUTO.name
+            )
+        }.getOrDefault(RagMode.AUTO)
+    }
+
     private fun documentAnswerLengthLabel(value: String): String {
         return when (value) {
             "medium" -> "متوسط"
             "long" -> "مفصل"
             else -> "مختصر"
+        }
+    }
+
+    private fun ragModeLabel(mode: RagMode): String {
+        return when (mode) {
+            RagMode.KEYWORD -> "بحث نصي"
+            RagMode.SEMANTIC -> "بحث دلالي"
+            RagMode.AUTO -> "تلقائي"
         }
     }
 
@@ -377,6 +406,12 @@ class MainActivity : AppCompatActivity() {
         session.updatedAt = System.currentTimeMillis()
         chatSessionStore.saveSession(session)
         setStatusSuccess("تم ضبط طول إجابة المستند: ${documentAnswerLengthLabel(value)}")
+    }
+
+    private fun updateRagMode(value: String) {
+        val mode = runCatching { RagMode.valueOf(value.uppercase(Locale.US)) }.getOrDefault(RagMode.AUTO)
+        preferences.edit().putString(KEY_RAG_SEARCH_MODE, mode.name).apply()
+        setStatusSuccess("تم ضبط وضع البحث: ${ragModeLabel(mode)}")
     }
 
     private fun currentDocumentAnswerLengthInstruction(): String {
@@ -487,16 +522,10 @@ class MainActivity : AppCompatActivity() {
         return chunks
     }
 
-    data class RetrievedChunk(
-        val documentId: String,
-        val documentTitle: String,
-        val chunkIndex: Int,
-        val text: String,
-        val score: Int
-    )
-
-    private fun retrieveDocumentChunks(query: String): List<RetrievedChunk> {
-        val document = getSelectedDocument() ?: return emptyList()
+    private fun retrieveKeywordDocumentChunks(
+        document: LocalDocument,
+        query: String
+    ): List<RetrievedChunk> {
         val words = query.lowercase()
             .split(Regex("\\s+"))
             .filter { it.length >= 2 }
@@ -521,6 +550,38 @@ class MainActivity : AppCompatActivity() {
         return scored.filter { it.score > 0 }
             .take(MAX_RETRIEVED_CHUNKS)
             .ifEmpty { scored.take(MAX_RETRIEVED_CHUNKS) }
+    }
+
+    private fun retrieveDocumentChunks(query: String): List<RetrievedChunk> {
+        val document = getSelectedDocument() ?: return emptyList()
+        val keywordResults = { retrieveKeywordDocumentChunks(document, query) }
+
+        return when (currentRagMode()) {
+            RagMode.KEYWORD -> keywordResults()
+            RagMode.AUTO -> {
+                val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
+                if (semanticResults.isNotEmpty()) semanticResults else keywordResults()
+            }
+            RagMode.SEMANTIC -> {
+                val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
+                if (semanticResults.isNotEmpty()) {
+                    semanticResults
+                } else {
+                    when {
+                        !embeddingModelManager.isEmbeddingModelReady() -> {
+                            setStatusInfo("نموذج التضمين غير مستورد بعد، تم استخدام البحث النصي.")
+                        }
+                        !embeddingStore.hasIndex(document.id) -> {
+                            setStatusInfo("الفهرس الدلالي غير جاهز لهذا المستند، تم استخدام البحث النصي.")
+                        }
+                        else -> {
+                            setStatusInfo("تعذر استخدام البحث الدلالي الآن، تم استخدام البحث النصي.")
+                        }
+                    }
+                    keywordResults()
+                }
+            }
+        }
     }
 
     private fun buildDocumentContext(query: String): String? {
@@ -938,6 +999,12 @@ class MainActivity : AppCompatActivity() {
             modelDescription = modelDescription(selectedModel),
             modelStatus = currentModelStatusLabel(),
             documentAnswerLength = currentDocumentAnswerLength(),
+            ragSearchMode = currentRagMode().name.lowercase(Locale.US),
+            embeddingModelStatus = if (embeddingModelManager.isEmbeddingModelReady()) {
+                "تم استيراد نموذج التضمين"
+            } else {
+                "نموذج التضمين غير مستورد بعد"
+            },
             selectedDocumentTitle = getSelectedDocument()?.title,
             sessionTitle = session.title,
             appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
@@ -1039,12 +1106,17 @@ class MainActivity : AppCompatActivity() {
         when (action) {
             SettingsActivity.ACTION_SELECT_MODEL -> showModelSelectionDialog()
             SettingsActivity.ACTION_IMPORT_MODEL -> openFilePicker()
+            SettingsActivity.ACTION_IMPORT_EMBEDDING_MODEL -> openEmbeddingModelPicker()
             SettingsActivity.ACTION_OPEN_CHAT_HISTORY -> showChatHistoryDialog()
             SettingsActivity.ACTION_OPEN_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
             SettingsActivity.ACTION_SET_DOCUMENT_ANSWER_LENGTH -> {
                 val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
                 updateDocumentAnswerLength(value)
                 saveActiveSessionDebounced(immediate = true)
+            }
+            SettingsActivity.ACTION_SET_RAG_SEARCH_MODE -> {
+                val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
+                updateRagMode(value)
             }
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
@@ -1250,6 +1322,16 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun openEmbeddingModelPicker() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            },
+            pickEmbeddingModelRequestCode
+        )
+    }
+
     private fun showDocumentLibraryDialog() {
         scope.launch {
             val documents = withContext(Dispatchers.IO) { documentStore.getDocuments() }
@@ -1327,6 +1409,23 @@ class MainActivity : AppCompatActivity() {
                 setStatusError("فشل الاستيراد")
             } finally {
                 isLoadingModel = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun importEmbeddingModelFromUri(uri: Uri) {
+        scope.launch {
+            isProcessingFile = true
+            updateButtons()
+            setStatusInfo("جاري استيراد نموذج التضمين...")
+            try {
+                withContext(Dispatchers.IO) { embeddingModelManager.importEmbeddingModel(uri) }
+                setStatusSuccess("تم استيراد نموذج التضمين")
+            } catch (_: Exception) {
+                setStatusError("فشل استيراد نموذج التضمين")
+            } finally {
+                isProcessingFile = false
                 updateButtons()
             }
         }
@@ -1495,6 +1594,7 @@ class MainActivity : AppCompatActivity() {
         when (requestCode) {
             pickModelRequestCode -> importModelFromUri(uri)
             pickImageRequestCode -> processImageUri(uri)
+            pickEmbeddingModelRequestCode -> importEmbeddingModelFromUri(uri)
             pickPdfRequestCode -> {
                 tryPersistPdfReadPermission(uri)
                 processPdfUri(uri)
@@ -1506,6 +1606,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CHAT_HISTORY_TEXT = "chat_history_text"
         private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
+        private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
         private const val MAX_DOCUMENT_CONTEXT_CHARS = 5_000
         private const val MAX_RETRIEVED_CHUNKS = 3
         private const val DOCUMENT_CHUNK_SIZE = 1_200
