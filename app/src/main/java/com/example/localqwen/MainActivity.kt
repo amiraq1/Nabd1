@@ -4,25 +4,27 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
-import android.os.SystemClock
 import android.provider.OpenableColumns
-import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.example.localqwen.chat.ChatAdapter
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.ChatSession
 import com.example.localqwen.chat.ChatSessionStore
@@ -38,6 +40,7 @@ import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
 import com.example.localqwen.tools.PhoneToolRouter
+import com.example.localqwen.work.PdfProcessingWorker
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
@@ -60,7 +63,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,8 +73,8 @@ import kotlin.coroutines.resumeWithException
 
 class MainActivity : AppCompatActivity() {
     private lateinit var statusView: TextView
-    private lateinit var chatContainer: LinearLayout
-    private lateinit var chatScrollView: ScrollView
+    private lateinit var rvChatMessages: RecyclerView
+    private lateinit var chatAdapter: ChatAdapter
     private lateinit var typingIndicatorView: TextView
     private lateinit var inputView: EditText
     private lateinit var attachButton: Button
@@ -92,14 +94,14 @@ class MainActivity : AppCompatActivity() {
     private val chatMessages = mutableListOf<ChatMessage>()
     private val supportedModels = ModelManager.SUPPORTED_MODELS
     private val preferences by lazy { getSharedPreferences("nabd_prefs", MODE_PRIVATE) }
+    private val workManager by lazy { WorkManager.getInstance(applicationContext) }
     private val modelLock = Any()
+    private val handledPdfWorkIds = mutableSetOf<UUID>()
 
     private var selectedModel: SupportedModel = supportedModels.first()
     private var loadedModelId: String? = null
     private var lastAssistantResponse: String = ""
     private var activeAssistantMessageIndex: Int = -1
-    private var activeAssistantTextView: TextView? = null
-    private var lastAutoScrollAt = 0L
     private var saveSessionJob: Job? = null
 
     @Volatile
@@ -120,16 +122,20 @@ class MainActivity : AppCompatActivity() {
         documentStore = DocumentStore(preferences)
         chatSessionStore = ChatSessionStore(preferences)
         phoneToolManager = PhoneToolManager(this)
+        chatAdapter = ChatAdapter(this)
 
         statusView = findViewById(R.id.statusTextView)
-        chatContainer = findViewById(R.id.chatContainer)
-        chatScrollView = findViewById(R.id.chatScrollView)
+        rvChatMessages = findViewById(R.id.rvChatMessages)
         typingIndicatorView = findViewById(R.id.tvTypingIndicator)
         inputView = findViewById(R.id.etMessage)
         attachButton = findViewById(R.id.btnAttachFile)
         optionsButton = findViewById(R.id.optionsButton)
         sendButton = findViewById(R.id.btnSend)
         sendProgressBar = findViewById(R.id.sendProgressBar)
+
+        rvChatMessages.layoutManager = LinearLayoutManager(this)
+        rvChatMessages.adapter = chatAdapter
+        rvChatMessages.itemAnimator = null
 
         selectedModel = supportedModels.find {
             it.id == preferences.getString(KEY_SELECTED_MODEL_ID, null)
@@ -172,35 +178,119 @@ class MainActivity : AppCompatActivity() {
     private fun loadActiveSession() {
         val session = chatSessionStore.getActiveOrCreateSession()
         chatMessages.clear()
-        runCatching {
-            val historyJson = JSONArray(session.messagesJson)
-            for (index in 0 until historyJson.length()) {
+        chatMessages.addAll(loadChatMessages(session.messagesJson))
+        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse)
+        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
+        session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+    }
+
+    private fun loadChatMessages(rawMessages: String): MutableList<ChatMessage> {
+        parseLegacyJsonMessages(rawMessages)?.let { return it }
+        return parseMessagesTextToChatMessages(rawMessages)
+    }
+
+    private fun parseLegacyJsonMessages(rawMessages: String): MutableList<ChatMessage>? {
+        if (rawMessages.isBlank()) return mutableListOf()
+
+        return runCatching {
+            val historyJson = JSONArray(rawMessages)
+            MutableList(historyJson.length()) { index ->
                 val item = historyJson.getJSONObject(index)
                 val role = runCatching {
                     Role.valueOf(item.optString("role", Role.ASSISTANT.name))
                 }.getOrDefault(Role.ASSISTANT)
-                chatMessages.add(
-                    ChatMessage(
-                        role = role,
-                        text = normalizeMessageText(role, item.optString("text", "")),
-                        timestamp = item.optLong("timestamp", System.currentTimeMillis())
-                    )
+                ChatMessage(
+                    role = role,
+                    text = normalizeMessageText(role, item.optString("text", "")),
+                    timestamp = item.optLong("timestamp", System.currentTimeMillis())
                 )
             }
+        }.getOrNull()
+    }
+
+    private fun parseMessagesTextToChatMessages(messagesText: String): MutableList<ChatMessage> {
+        val normalized = messagesText.trim()
+        if (normalized.isBlank()) return mutableListOf()
+
+        return runCatching {
+            val messages = mutableListOf<ChatMessage>()
+            val headerRegex = Regex("^(أنت|نبض|النظام):\\s*(.*)$")
+            var currentRole: Role? = null
+            val buffer = mutableListOf<String>()
+
+            fun flushCurrent() {
+                val role = currentRole ?: return
+                val text = normalizeMessageText(role, buffer.joinToString("\n").trim())
+                messages.add(
+                    ChatMessage(
+                        role = role,
+                        text = text,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+                buffer.clear()
+            }
+
+            normalized.lines().forEach { line ->
+                val match = headerRegex.matchEntire(line.trim())
+                if (match != null) {
+                    flushCurrent()
+                    currentRole = when (match.groupValues[1]) {
+                        "أنت" -> Role.USER
+                        "نبض" -> Role.ASSISTANT
+                        else -> Role.SYSTEM
+                    }
+                    val inlineText = match.groupValues[2].trim()
+                    if (inlineText.isNotEmpty()) {
+                        buffer.add(inlineText)
+                    }
+                } else {
+                    buffer.add(line)
+                }
+            }
+
+            flushCurrent()
+
+            if (messages.isEmpty()) {
+                mutableListOf(
+                    ChatMessage(
+                        role = Role.SYSTEM,
+                        text = cleanForDisplay(normalized),
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                messages
+            }
+        }.getOrElse {
+            mutableListOf(
+                ChatMessage(
+                    role = Role.SYSTEM,
+                    text = cleanForDisplay(normalized),
+                    timestamp = System.currentTimeMillis()
+                )
+            )
         }
-        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse)
-        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
-        session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+    }
+
+    private fun buildMessagesTextFromChatMessages(messages: List<ChatMessage>): String {
+        return messages.joinToString("\n\n") { message ->
+            val label = when (message.role) {
+                Role.USER -> "أنت"
+                Role.ASSISTANT -> "نبض"
+                Role.SYSTEM -> "النظام"
+            }
+            "$label:\n${message.text.trim()}"
+        }.trim()
     }
 
     private fun startNewChat() {
         chatMessages.clear()
         lastAssistantResponse = ""
         activeAssistantMessageIndex = -1
-        activeAssistantTextView = null
+        chatAdapter.clearMessages()
         documentStore.clearSelectedDocumentId()
         chatSessionStore.createNewSession()
-        renderChatHistory()
         setStatusInfo("تم إنشاء محادثة جديدة")
         updateButtons()
     }
@@ -294,13 +384,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildConversationPlainText(): String {
-        return chatMessages.joinToString("\n\n") { message ->
-            when (message.role) {
-                Role.USER -> "أنت:\n${message.text}"
-                Role.ASSISTANT -> "نبض:\n${message.text}"
-                Role.SYSTEM -> message.text
-            }
-        }.trim()
+        return buildMessagesTextFromChatMessages(chatMessages)
     }
 
     private fun copyFullConversation() {
@@ -502,12 +586,13 @@ class MainActivity : AppCompatActivity() {
         addChatMessage(ChatMessage(role = Role.USER, text = input))
         val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
         addChatMessage(assistantMessage)
-        saveActiveSessionDebounced(
+        startAssistantGeneration(
+            prompt = prompt,
+            assistant = assistantMessage,
+            status = "جاري التوليد...",
             autoTitle = chatMessages.count { it.role == Role.USER } == 1,
-            firstUserMessage = input,
-            immediate = true
+            firstUserMessage = input
         )
-        startAssistantGeneration(prompt, assistantMessage, "جاري التوليد...")
     }
 
     private fun addChatMessage(message: ChatMessage) {
@@ -520,81 +605,26 @@ class MainActivity : AppCompatActivity() {
         if (normalizedMessage.role == Role.ASSISTANT && normalizedMessage.text.isNotBlank()) {
             lastAssistantResponse = normalizedMessage.text
         }
-        val view = createMessageView(normalizedMessage)
-        chatContainer.addView(view)
+        chatAdapter.addMessage(normalizedMessage)
         if (normalizedMessage.role == Role.ASSISTANT) {
             activeAssistantMessageIndex = chatMessages.lastIndex
-            activeAssistantTextView = view as? TextView
         }
-        scheduleAutoScroll(force = true)
+        scrollChatToBottom()
     }
 
     private fun updateAssistantMessage(text: String, forceScroll: Boolean = false) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
         val cleanedText = cleanForDisplay(text)
         chatMessages[activeAssistantMessageIndex].text = cleanedText
-        activeAssistantTextView?.text = formatAssistantMessage(cleanedText)
-        scheduleAutoScroll(force = forceScroll)
+        chatAdapter.updateLastAssistantMessage(cleanedText)
+        if (forceScroll) {
+            scrollChatToBottom()
+        }
     }
 
     private fun renderChatHistory() {
-        chatContainer.removeAllViews()
-        activeAssistantTextView = null
-        chatMessages.forEachIndexed { index, message ->
-            val view = createMessageView(message)
-            chatContainer.addView(view)
-            if (index == activeAssistantMessageIndex && message.role == Role.ASSISTANT) {
-                activeAssistantTextView = view as? TextView
-            }
-        }
-        scheduleAutoScroll(force = true)
-    }
-
-    private fun createMessageView(message: ChatMessage): View {
-        return when (message.role) {
-            Role.USER -> createUserMessageView(displayTextForChat(message.text))
-            Role.ASSISTANT -> createAssistantMessageView(message.text)
-            Role.SYSTEM -> createSystemMessageView(displayTextForChat(cleanForDisplay(message.text)))
-        }
-    }
-
-    private fun createUserMessageView(text: String) = TextView(this).apply {
-        this.text = text
-        setTextColor(Color.WHITE)
-        setPadding(32, 16, 32, 16)
-        background = ContextCompat.getDrawable(context, R.drawable.bg_bubble_user)
-        setTextIsSelectable(true)
-        layoutParams = LinearLayout.LayoutParams(-2, -2).apply {
-            gravity = Gravity.END
-            topMargin = 8
-            bottomMargin = 8
-        }
-    }
-
-    private fun createAssistantMessageView(message: String) = TextView(this).apply {
-        text = formatAssistantMessage(message)
-        setTextColor(ContextCompat.getColor(context, R.color.nabd_text))
-        setTextIsSelectable(true)
-        setPadding(16, 16, 16, 16)
-    }
-
-    private fun createSystemMessageView(text: String) = TextView(this).apply {
-        this.text = text
-        setTextColor(Color.GRAY)
-        gravity = Gravity.CENTER
-        setPadding(16, 8, 16, 8)
-    }
-
-    private fun formatAssistantMessage(message: String): String {
-        return "نبض:\n${displayTextForChat(cleanForDisplay(message))}"
-    }
-
-    private fun displayTextForChat(text: String): String {
-        return if (text.length <= MAX_CHAT_DISPLAY_CHARS) {
-            text
-        } else {
-            text.take(MAX_CHAT_DISPLAY_CHARS) + "\n\n(تم اختصار العرض لطول المحادثة)"
-        }
+        chatAdapter.submitMessages(chatMessages.map { it.copy() })
+        scrollChatToBottom()
     }
 
     private fun normalizeMessageText(role: Role, text: String): String {
@@ -634,14 +664,20 @@ class MainActivity : AppCompatActivity() {
             .trim()
     }
 
-    private fun scheduleAutoScroll(force: Boolean = false) {
-        val now = SystemClock.elapsedRealtime()
-        if (!force && now - lastAutoScrollAt < STREAM_SCROLL_THROTTLE_MS) return
-        lastAutoScrollAt = now
-        chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+    private fun scrollChatToBottom() {
+        val lastIndex = chatAdapter.itemCount - 1
+        if (lastIndex >= 0) {
+            rvChatMessages.post { rvChatMessages.scrollToPosition(lastIndex) }
+        }
     }
 
-    private fun startAssistantGeneration(prompt: String, assistant: ChatMessage, status: String) {
+    private fun startAssistantGeneration(
+        prompt: String,
+        assistant: ChatMessage,
+        status: String,
+        autoTitle: Boolean = false,
+        firstUserMessage: String? = null
+    ) {
         val currentConversation = conversation
         if (currentConversation == null) {
             setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
@@ -677,13 +713,27 @@ class MainActivity : AppCompatActivity() {
                 assistant.text = finalText
                 lastAssistantResponse = finalText
                 updateAssistantMessage(finalText, forceScroll = true)
-                saveActiveSessionDebounced(immediate = true)
+                saveActiveSessionDebounced(
+                    autoTitle = autoTitle,
+                    firstUserMessage = firstUserMessage,
+                    immediate = true
+                )
                 setStatusSuccess("جاهز")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: OutOfMemoryError) {
+                saveActiveSessionDebounced(
+                    autoTitle = autoTitle,
+                    firstUserMessage = firstUserMessage,
+                    immediate = true
+                )
                 setStatusError("حدث خطأ أثناء توليد الرد.")
             } catch (_: Exception) {
+                saveActiveSessionDebounced(
+                    autoTitle = autoTitle,
+                    firstUserMessage = firstUserMessage,
+                    immediate = true
+                )
                 setStatusError("حدث خطأ أثناء توليد الرد.")
             } finally {
                 isGenerating = false
@@ -705,22 +755,13 @@ class MainActivity : AppCompatActivity() {
 
         saveSessionJob = scope.launch {
             if (!immediate) delay(250)
-            val messagesJson = withContext(Dispatchers.Default) {
-                JSONArray().apply {
-                    snapshotMessages.forEach { message ->
-                        put(
-                            JSONObject()
-                                .put("role", message.role.name)
-                                .put("text", message.text)
-                                .put("timestamp", message.timestamp)
-                        )
-                    }
-                }.toString()
+            val messagesText = withContext(Dispatchers.Default) {
+                buildMessagesTextFromChatMessages(snapshotMessages)
             }
 
             withContext(Dispatchers.IO) {
                 chatSessionStore.updateActiveSession(
-                    messagesJson = messagesJson,
+                    messagesJson = messagesText,
                     lastAssistantResponse = snapshotAssistantResponse,
                     selectedDocumentId = selectedDocumentId,
                     documentAnswerLength = currentDocumentAnswerLength(),
@@ -1157,8 +1198,7 @@ class MainActivity : AppCompatActivity() {
         chatMessages.clear()
         lastAssistantResponse = ""
         activeAssistantMessageIndex = -1
-        activeAssistantTextView = null
-        renderChatHistory()
+        chatAdapter.clearMessages()
         saveActiveSessionDebounced(immediate = true)
         setStatusInfo("تم المسح")
     }
@@ -1195,6 +1235,8 @@ class MainActivity : AppCompatActivity() {
             Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "application/pdf"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
             },
             pickPdfRequestCode
         )
@@ -1354,111 +1396,82 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processPdfUri(uri: Uri) {
-        if (engine == null) {
-            setStatusError("شغل نبض أولاً")
-            return
-        }
+        val title = getDisplayName(uri) ?: DEFAULT_PDF_TITLE
+        val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
+            .setInputData(
+                workDataOf(
+                    PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
+                    PdfProcessingWorker.KEY_PDF_TITLE to title
+                )
+            )
+            .build()
 
-        isProcessingFile = true
-        updateButtons()
-        setStatusInfo("قراءة PDF...")
+        addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تمت إضافة ملف PDF للمعالجة في الخلفية..."))
+        saveActiveSessionDebounced(immediate = true)
+        setStatusInfo("جاري تحليل ملف PDF في الخلفية...")
 
-        scope.launch {
-            try {
-                val extractedText = withContext(Dispatchers.IO) { extractPdfText(uri) }
-                if (extractedText.isNotEmpty()) {
-                    withContext(Dispatchers.IO) {
-                        saveExtractedDocument(getDisplayName(uri) ?: "PDF", "pdf", extractedText)
+        workManager.enqueue(request)
+        observePdfProcessing(request.id)
+    }
+
+    private fun observePdfProcessing(workId: UUID) {
+        workManager.getWorkInfoByIdLiveData(workId).observe(this) { workInfo ->
+            if (workInfo == null) return@observe
+
+            when (workInfo.state) {
+                WorkInfo.State.RUNNING -> {
+                    val page = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_PAGE, 0)
+                    val total = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_TOTAL, 0)
+                    if (page > 0 && total > 0) {
+                        setStatusInfo("جاري استخراج النص من الصفحة $page من $total...")
+                    } else {
+                        setStatusInfo("جاري تحليل ملف PDF في الخلفية...")
                     }
-                    addChatMessage(
-                        ChatMessage(role = Role.USER, text = "تحليل ملف PDF: ${getDisplayName(uri)}")
-                    )
-                    val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
-                    addChatMessage(assistant)
-                    startAssistantGeneration(
-                        """
-                        أنت "نبض"، مساعد ذكاء اصطناعي محلي.
-                        حلل النص المستخرج من ملف PDF.
-                        أجب بالعربية فقط.
-                        لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
-                        اجعل الإجابة واضحة ومباشرة.
-
-                        النص المستخرج:
-                        ${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}
-                        """.trimIndent(),
-                        assistant,
-                        "جاري التحليل..."
-                    )
-                } else {
-                    setStatusError("لم يتم العثور على نص واضح.")
                 }
-            } catch (_: PdfTooLargeException) {
-                setStatusError("تعذر تحليل الملف بسبب حجمه الكبير. جرّب ملفًا أصغر.")
-            } catch (_: OutOfMemoryError) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
-            } catch (_: Exception) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
-            } finally {
-                isProcessingFile = false
-                updateButtons()
+
+                WorkInfo.State.SUCCEEDED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
+                        ?: DEFAULT_PDF_TITLE
+                    val extractedChars = workInfo.outputData.getInt(PdfProcessingWorker.KEY_EXTRACTED_CHARS, 0)
+                    addChatMessage(
+                        ChatMessage(
+                            role = Role.SYSTEM,
+                            text = "تم تحليل ملف PDF وحفظه في مكتبة المستندات: $title\nعدد الأحرف المستخرجة: $extractedChars"
+                        )
+                    )
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusSuccess("اكتمل تحليل ملف PDF")
+                }
+
+                WorkInfo.State.FAILED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    val error = workInfo.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE)
+                        ?: "تعذر تحليل ملف PDF"
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تعذر تحليل ملف PDF: $error"))
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusError(error)
+                }
+
+                WorkInfo.State.CANCELLED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تم إلغاء تحليل ملف PDF"))
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusError("تم إلغاء تحليل ملف PDF")
+                }
+
+                else -> Unit
             }
         }
     }
 
-    private suspend fun extractPdfText(uri: Uri): String {
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        try {
-            contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
-                val renderer = PdfRenderer(descriptor)
-                try {
-                    val text = StringBuilder()
-                    val pageCount = minOf(renderer.pageCount, MAX_PDF_PAGES)
-                    for (index in 0 until pageCount) {
-                        val page = renderer.openPage(index)
-                        try {
-                            val bitmap = createSafePdfBitmap(page)
-                            try {
-                                val result = recognizer.process(InputImage.fromBitmap(bitmap, 0)).awaitTask()
-                                val pageText = result.text.trim()
-                                if (pageText.isNotEmpty()) {
-                                    if (text.isNotEmpty()) text.append("\n\n")
-                                    text.append(pageText)
-                                }
-                            } finally {
-                                if (!bitmap.isRecycled) bitmap.recycle()
-                            }
-                        } finally {
-                            page.close()
-                        }
-                    }
-                    return text.toString().trim()
-                } finally {
-                    renderer.close()
-                }
-            } ?: return ""
-        } catch (_: OutOfMemoryError) {
-            throw PdfTooLargeException()
-        } finally {
-            recognizer.close()
+    private fun tryPersistPdfReadPermission(uri: Uri) {
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
         }
-    }
-
-    private fun createSafePdfBitmap(page: PdfRenderer.Page): Bitmap {
-        val width = page.width.coerceAtLeast(1)
-        val height = page.height.coerceAtLeast(1)
-        val scaledWidth = (width * PDF_RENDER_SCALE).toInt().coerceAtLeast(1)
-        val scaledHeight = (height * PDF_RENDER_SCALE).toInt().coerceAtLeast(1)
-        val ratio = minOf(
-            1f,
-            MAX_PDF_BITMAP_DIMENSION.toFloat() / scaledWidth,
-            MAX_PDF_BITMAP_DIMENSION.toFloat() / scaledHeight
-        )
-        val targetWidth = (scaledWidth * ratio).toInt().coerceAtLeast(1)
-        val targetHeight = (scaledHeight * ratio).toInt().coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(Color.WHITE)
-        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-        return bitmap
     }
 
     private fun formatDate(timestamp: Long): String {
@@ -1491,30 +1504,27 @@ class MainActivity : AppCompatActivity() {
         when (requestCode) {
             pickModelRequestCode -> importModelFromUri(uri)
             pickImageRequestCode -> processImageUri(uri)
-            pickPdfRequestCode -> processPdfUri(uri)
+            pickPdfRequestCode -> {
+                tryPersistPdfReadPermission(uri)
+                processPdfUri(uri)
+            }
         }
     }
-
-    private class PdfTooLargeException : Exception()
 
     companion object {
         private const val KEY_CHAT_HISTORY_TEXT = "chat_history_text"
         private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
-        private const val MAX_PDF_PAGES = 3
-        private const val MAX_PDF_BITMAP_DIMENSION = 2048
-        private const val PDF_RENDER_SCALE = 1.2f
         private const val MAX_DOCUMENT_CONTEXT_CHARS = 5_000
         private const val MAX_RETRIEVED_CHUNKS = 3
         private const val DOCUMENT_CHUNK_SIZE = 1_200
         private const val DOCUMENT_TEXT_LIMIT = 200_000
         private const val PROMPT_TEXT_LIMIT = 6_000
-        private const val STREAM_SCROLL_THROTTLE_MS = 300L
         private const val STREAM_UPDATE_MIN_CHARS = 48
-        private const val MAX_CHAT_DISPLAY_CHARS = 40_000
         private const val MAX_DOCUMENT_SEARCH_RESULTS = 5
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
+        private const val DEFAULT_PDF_TITLE = "ملف PDF"
     }
 }
 

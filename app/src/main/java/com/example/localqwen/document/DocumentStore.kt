@@ -1,5 +1,6 @@
 package com.example.localqwen.document
 
+import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
@@ -7,6 +8,10 @@ import org.json.JSONObject
 class DocumentStore(
     private val preferences: SharedPreferences
 ) {
+    constructor(context: Context) : this(
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    )
+
     fun getDocuments(): List<LocalDocument> {
         val raw = preferences.getString(KEY_LOCAL_DOCUMENTS_JSON, null).orEmpty()
         if (raw.isBlank()) return emptyList()
@@ -93,6 +98,7 @@ class DocumentStore(
     }
 
     companion object {
+        const val PREFERENCES_NAME = "nabd_prefs"
         const val KEY_LOCAL_DOCUMENTS_JSON = "local_documents_json"
         const val KEY_SELECTED_DOCUMENT_ID = "selected_document_id"
         private const val MAX_DOCUMENT_TEXT_CHARS = 200_000
