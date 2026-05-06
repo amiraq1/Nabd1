@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.provider.OpenableColumns
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -30,6 +31,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.Role
+import com.example.localqwen.document.DocumentStore
+import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.model.ModelManager
 import com.example.localqwen.model.ModelManager.SupportedModel
 import com.google.ai.edge.litertlm.Conversation
@@ -54,6 +57,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
+
+import com.example.localqwen.chat.ChatSession
+import com.example.localqwen.chat.ChatSessionStore
+import com.example.localqwen.tools.PhoneToolManager
+import com.example.localqwen.tools.PhoneToolResult
+import com.example.localqwen.tools.PhoneToolIntent
+import com.example.localqwen.tools.PhoneToolRouter
 
 class MainActivity : AppCompatActivity() {
     private lateinit var statusView: TextView
@@ -66,6 +80,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sendButton: Button
     private lateinit var sendProgressBar: ProgressBar
     private lateinit var modelManager: ModelManager
+    private lateinit var documentStore: DocumentStore
+    private lateinit var chatSessionStore: ChatSessionStore
+    private lateinit var phoneToolManager: PhoneToolManager
 
     private val pickModelRequestCode = 200
     private val pickImageRequestCode = 201
@@ -94,6 +111,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         modelManager = ModelManager(this)
+        documentStore = DocumentStore(preferences)
+        chatSessionStore = ChatSessionStore(preferences)
+        phoneToolManager = PhoneToolManager(this)
 
         statusView = findViewById(R.id.statusTextView)
         chatContainer = findViewById(R.id.chatContainer)
@@ -107,6 +127,8 @@ class MainActivity : AppCompatActivity() {
         selectedModel = supportedModels.find { it.id == preferences.getString(KEY_SELECTED_MODEL_ID, null) }
             ?: supportedModels.first()
 
+        migrateOldHistoryIfNeeded()
+        loadActiveSession()
         setStatusInfo(currentStatus())
         renderChatHistory()
 
@@ -119,9 +141,74 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) = Unit
         })
 
-        restoreChatHistory()
         updateButtons()
     }
+
+    private fun migrateOldHistoryIfNeeded() {
+        if (preferences.getString("chat_sessions_json", null) != null) return
+
+        val oldJson = preferences.getString(KEY_CHAT_MESSAGES_JSON, null)
+        if (!oldJson.isNullOrBlank()) {
+            val session = ChatSession(
+                title = "محادثة سابقة",
+                messagesJson = oldJson,
+                lastAssistantResponse = preferences.getString(KEY_CHAT_HISTORY_TEXT, "") ?: ""
+            )
+            chatSessionStore.saveSession(session)
+            chatSessionStore.setActiveSessionId(session.id)
+        }
+    }
+
+    private fun loadActiveSession() {
+        val session = chatSessionStore.getActiveOrCreateSession()
+        chatMessages.clear()
+        
+        runCatching {
+            val historyJson = JSONArray(session.messagesJson)
+            for (index in 0 until historyJson.length()) {
+                val item = historyJson.getJSONObject(index)
+                chatMessages.add(
+                    ChatMessage(
+                        role = runCatching { Role.valueOf(item.optString("role", Role.ASSISTANT.name)) }
+                            .getOrDefault(Role.ASSISTANT),
+                        text = item.optString("text", ""),
+                        timestamp = item.optLong("timestamp", System.currentTimeMillis())
+                    )
+                )
+            }
+        }
+
+        lastAssistantResponse = session.lastAssistantResponse
+        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
+        
+        if (session.selectedDocumentId != null) {
+            documentStore.setSelectedDocumentId(session.selectedDocumentId!!)
+        }
+        
+        if (session.documentAnswerLength != null) {
+            saveAnswerLengthPreference(session.documentAnswerLength!!)
+        }
+    }
+
+    private fun startNewChat() {
+        chatMessages.clear()
+        lastAssistantResponse = ""
+        activeAssistantMessageIndex = -1
+        documentStore.clearSelectedDocumentId()
+        chatSessionStore.createNewSession()
+        renderChatHistory()
+        setStatusInfo("تم إنشاء محادثة جديدة")
+        updateButtons()
+    }
+
+    private fun switchSession(id: String) {
+        chatSessionStore.setActiveSessionId(id)
+        loadActiveSession()
+        renderChatHistory()
+        setStatusInfo(currentStatus())
+        updateButtons()
+    }
+
 
     override fun onDestroy() {
         closeModelResources()
@@ -130,6 +217,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentStatus(): String {
+        val session = chatSessionStore.getActiveOrCreateSession()
         val baseStatus = if (loadedModelId == selectedModel.id && engine != null && conversation != null) {
             "جاهز • ${selectedModel.displayName}"
         } else if (modelManager.isModelReady(selectedModel)) {
@@ -137,27 +225,44 @@ class MainActivity : AppCompatActivity() {
         } else {
             "غير مستورد • ${selectedModel.displayName}"
         }
-        return if (selectedModel.id == "gemma_e4b") {
+        val status = if (selectedModel.id == "gemma_e4b") {
             "$baseStatus\nتنبيه: Gemma E4B أثقل وقد يحتاج وقتًا أطول وذاكرة أكبر."
         } else {
             baseStatus
         }
+        
+        val chatTitle = "المحادثة: ${session.title}"
+        val selectedDocument = getSelectedDocument()
+        val docStatus = if (selectedDocument != null) {
+            "\nالمستند: ${selectedDocument.title}"
+        } else {
+            ""
+        }
+        
+        return "$chatTitle\n$status$docStatus"
     }
 
     private fun updateButtons() {
         val hasInput = inputView.text?.toString()?.trim()?.isNotEmpty() == true
-        val busy = isLoadingModel || isGenerating || isProcessingFile
+        val busy = isGenerating || isProcessingFile
+        val loading = isLoadingModel
 
-        optionsButton.isEnabled = !busy
-        attachButton.isEnabled = !busy
-        sendButton.isEnabled = !busy && hasInput
+        optionsButton.isEnabled = !busy && !loading
+        attachButton.isEnabled = !busy && !loading
+        
+        // Requirement:
+        // 1.0 when input has text and not generating
+        // 0.45 only when input is empty or generating
+        // Keep btnSend clickable if model not loaded but input has text
+        sendButton.isEnabled = !busy
+        sendButton.alpha = if (hasInput && !isGenerating) 1.0f else 0.45f
+        
         inputView.isEnabled = !busy
         sendButton.text = if (isGenerating) "…" else "↑"
-        sendButton.alpha = if (sendButton.isEnabled) 1.0f else 0.5f
         attachButton.text = "+"
         attachButton.alpha = if (attachButton.isEnabled) 1.0f else 0.5f
         typingIndicatorView.visibility = if (isGenerating) View.VISIBLE else View.GONE
-        sendProgressBar.visibility = if (busy) View.VISIBLE else View.GONE
+        sendProgressBar.visibility = if (busy || loading) View.VISIBLE else View.GONE
     }
 
     private fun setStatusInfo(message: String) {
@@ -173,6 +278,143 @@ class MainActivity : AppCompatActivity() {
     private fun setStatusError(message: String) {
         statusView.text = message
         statusView.setTextColor(ContextCompat.getColor(this, R.color.nabd_error))
+    }
+
+    private fun getSelectedDocument(): LocalDocument? {
+        return documentStore.getDocument(documentStore.getSelectedDocumentId())
+    }
+
+    private fun getDisplayName(uri: Uri): String? {
+        return runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                } else {
+                    null
+                }
+            }
+        }.getOrNull()
+    }
+
+    private fun saveExtractedDocument(
+        title: String,
+        type: String,
+        extractedText: String
+    ) {
+        if (extractedText.isBlank()) return
+        documentStore.saveDocument(
+            LocalDocument(
+                id = UUID.randomUUID().toString(),
+                title = title,
+                type = type,
+                extractedText = extractedText.trim(),
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private fun clearSelectedDocument() {
+        documentStore.clearSelectedDocumentId()
+        setStatusInfo(currentStatus())
+    }
+
+    private fun chunkText(text: String, maxChars: Int = 1200): List<String> {
+        val normalizedText = text.trim()
+        if (normalizedText.isEmpty()) return emptyList()
+
+        val paragraphs = normalizedText
+            .split(Regex("\\n\\s*\\n"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        val chunks = mutableListOf<String>()
+        val current = StringBuilder()
+
+        fun flushCurrent() {
+            val chunk = current.toString().trim()
+            if (chunk.isNotEmpty()) chunks.add(chunk)
+            current.clear()
+        }
+
+        for (paragraph in paragraphs) {
+            if (paragraph.length > maxChars) {
+                flushCurrent()
+                var start = 0
+                while (start < paragraph.length) {
+                    val end = (start + maxChars).coerceAtMost(paragraph.length)
+                    chunks.add(paragraph.substring(start, end).trim())
+                    start = end
+                }
+                continue
+            }
+
+            if (current.length + paragraph.length + 2 > maxChars && current.isNotEmpty()) {
+                flushCurrent()
+            }
+
+            if (current.isNotEmpty()) current.append("\n\n")
+            current.append(paragraph)
+        }
+
+        flushCurrent()
+        return chunks
+    }
+
+    data class RetrievedChunk(
+        val documentId: String,
+        val documentTitle: String,
+        val chunkIndex: Int,
+        val text: String,
+        val score: Int
+    )
+
+    private fun retrieveDocumentChunks(query: String): List<RetrievedChunk> {
+        val selectedDocument = getSelectedDocument() ?: return emptyList()
+        val queryWords = query
+            .lowercase(Locale.getDefault())
+            .split(Regex("\\s+"))
+            .map { it.trim('،', '.', ',', ':', ';', '؟', '?', '!', '(', ')', '[', ']') }
+            .filter { it.length >= 2 }
+            .toSet()
+
+        val scoredChunks = chunkText(selectedDocument.extractedText)
+            .mapIndexed { index, chunk ->
+                val normalizedChunk = chunk.lowercase(Locale.getDefault())
+                val overlap = queryWords.sumOf { word ->
+                    if (normalizedChunk.contains(word)) 1 else 0
+                }
+                RetrievedChunk(
+                    documentId = selectedDocument.id,
+                    documentTitle = selectedDocument.title,
+                    chunkIndex = index,
+                    text = chunk,
+                    score = overlap
+                )
+            }
+            .sortedWith(compareByDescending<RetrievedChunk> { it.score }.thenBy { it.chunkIndex })
+
+        return if (queryWords.isEmpty()) {
+            scoredChunks.take(3)
+        } else {
+            scoredChunks.filter { it.score > 0 }.take(3)
+        }.ifEmpty {
+            scoredChunks.take(2)
+        }
+    }
+
+    private fun buildDocumentContext(query: String): String? {
+        val selectedChunks = retrieveDocumentChunks(query)
+        if (selectedChunks.isEmpty()) return null
+
+        val contextBuilder = StringBuilder()
+        selectedChunks.forEachIndexed { index, chunk ->
+            if (contextBuilder.length + chunk.text.length + 50 > 5000) return@forEachIndexed
+            if (contextBuilder.isNotEmpty()) contextBuilder.append("\n\n")
+            contextBuilder.append("[مقتطف ${index + 1} من ${chunk.documentTitle}]\n")
+            contextBuilder.append(chunk.text)
+        }
+
+        return contextBuilder.toString().takeIf { it.isNotBlank() }
     }
 
     private fun openFilePicker() {
@@ -374,9 +616,9 @@ class MainActivity : AppCompatActivity() {
         chatMessages.clear()
         activeAssistantMessageIndex = -1
         lastAssistantResponse = ""
-        clearSavedChatHistory()
+        saveChatHistory()
         renderChatHistory()
-        setStatusInfo(currentStatus())
+        setStatusInfo("تم مسح المحادثة الحالية")
         updateButtons()
     }
 
@@ -411,6 +653,12 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
+                saveExtractedDocument(
+                    title = getDisplayName(uri) ?: "صورة",
+                    type = "image",
+                    extractedText = extractedText
+                )
+
                 addChatMessage(
                     ChatMessage(
                         Role.USER,
@@ -419,7 +667,9 @@ class MainActivity : AppCompatActivity() {
                 )
                 val assistantEntry = ChatMessage(Role.ASSISTANT, "")
                 addChatMessage(assistantEntry)
-                saveChatHistory()
+                
+                val isFirstUserMessage = chatMessages.count { it.role == Role.USER } == 1
+                saveChatHistory(autoTitle = isFirstUserMessage, firstUserMessage = "تحليل صورة: ${getDisplayName(uri) ?: "صورة"}")
 
                 val prompt = """
                     أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
@@ -434,6 +684,7 @@ class MainActivity : AppCompatActivity() {
 
                 isProcessingFile = false
                 startAssistantGeneration(prompt, assistantEntry, "جارٍ تحليل النص المستخرج...")
+                setStatusSuccess("تم حفظ نص الصورة في مكتبة المستندات")
             }
             .addOnFailureListener { error ->
                 isProcessingFile = false
@@ -501,12 +752,20 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                saveExtractedDocument(
+                    title = getDisplayName(uri) ?: "ملف PDF",
+                    type = "pdf",
+                    extractedText = extractedText
+                )
+
                 val wasTruncated = extractedText.length > 6000
                 val promptText = if (wasTruncated) extractedText.take(6000) else extractedText
                 addChatMessage(ChatMessage(Role.USER, buildPdfSummary(renderer.pageCount, pageCount, wasTruncated)))
                 val assistantEntry = ChatMessage(Role.ASSISTANT, "")
                 addChatMessage(assistantEntry)
-                saveChatHistory()
+                
+                val isFirstUserMessage = chatMessages.count { it.role == Role.USER } == 1
+                saveChatHistory(autoTitle = isFirstUserMessage, firstUserMessage = "تحليل PDF: ${getDisplayName(uri) ?: "ملف PDF"}")
 
                 val prompt = """
                     أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
@@ -530,6 +789,7 @@ class MainActivity : AppCompatActivity() {
                     statusMessage = "جاري تحليل النص بواسطة نبض...",
                     completionStatus = "اكتمل تحليل ملف PDF"
                 )
+                setStatusSuccess("تم حفظ ملف PDF في مكتبة المستندات")
             } catch (e: Exception) {
                 setStatusError("تعذر تحليل ملف PDF: ${e.message ?: e.javaClass.simpleName}")
             } finally {
@@ -544,48 +804,104 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendPrompt() {
-        if (isLoadingModel || isGenerating || isProcessingFile) return
+        if (isGenerating || isProcessingFile) return
 
         val userInput = inputView.text.toString().trim()
-        if (userInput.isEmpty()) {
-            setStatusError("اكتب رسالة أولًا")
+        if (userInput.isEmpty()) return
+
+        // 1. Detect Phone Tool Intents
+        val toolIntents = PhoneToolRouter.detectToolIntents(userInput)
+        if (toolIntents.isNotEmpty()) {
+            showPhoneToolConfirmation(userInput, toolIntents)
             return
         }
 
-        if (!modelManager.isModelReady(selectedModel)) {
+        if (!modelManager.isModelReady(selectedModel) || conversation == null || loadedModelId != selectedModel.id) {
             setStatusError("يرجى تشغيل نبض أولًا")
-            updateButtons()
+            Toast.makeText(this, "يرجى تشغيل نبض أولًا", Toast.LENGTH_SHORT).show()
             return
         }
 
-        if (conversation == null || loadedModelId != selectedModel.id) {
-            setStatusError("يرجى تشغيل نبض أولًا")
-            return
-        }
+        val retrievedChunks = if (getSelectedDocument() != null) retrieveDocumentChunks(userInput) else emptyList()
+        val documentContext = if (retrievedChunks.isNotEmpty()) {
+            val contextBuilder = StringBuilder()
+            retrievedChunks.forEachIndexed { index, chunk ->
+                if (contextBuilder.length + chunk.text.length + 50 > 5000) return@forEachIndexed
+                if (contextBuilder.isNotEmpty()) contextBuilder.append("\n\n")
+                contextBuilder.append("[مقتطف ${index + 1} من ${chunk.documentTitle}]\n")
+                contextBuilder.append(chunk.text)
+            }
+            contextBuilder.toString()
+        } else null
 
-        val prompt = """
-            أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
-            أجب بالعربية فقط.
-            أجب مباشرة على سؤال المستخدم.
-            لا تطلب تفاصيل إضافية إلا إذا كان السؤال غامضًا جدًا.
-            لا تستخدم Markdown.
-            لا تستخدم النجوم **.
-            لا تعرض التفكير الداخلي.
-            لا تستخدم رموزًا خاصة.
-            اكتب إجابة واضحة ومختصرة من 2 إلى 5 جمل.
-            ${if (selectedModel.id == "gemma_e4b") "إذا كان السؤال تحليليًا أو معقدًا، يمكنك التفصيل من 5 إلى 10 جمل." else ""}
-            
-            رسالة المستخدم:
-            $userInput
-        """.trimIndent()
+        val prompt = if (documentContext != null) {
+            val lengthInstruction = getAnswerLengthInstruction(userInput)
+            """
+                أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
+                أجب بالعربية فقط.
+                اعتمد على سياق المستند التالي قدر الإمكان.
+                إذا لم تجد الإجابة في السياق، قل: "لا يحتوي النص المتوفر على إجابة كافية."
+                لا تعرض التفكير الداخلي.
+                لا تستخدم رموزًا خاصة.
+                اكتب الإجابة بشكل واضح ومنظم.
+
+                $lengthInstruction
+
+                سياق المستند:
+                $documentContext
+
+                سؤال المستخدم:
+                $userInput
+            """.trimIndent()
+        } else {
+            """
+                أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
+                أجب بالعربية فقط.
+                أجب مباشرة على سؤال المستخدم.
+                لا تطلب تفاصيل إضافية إلا إذا كان السؤال غامضًا جدًا.
+                لا تستخدم Markdown.
+                لا تستخدم النجوم **.
+                لا تعرض التفكير الداخلي.
+                لا تستخدم رموزًا خاصة.
+                اكتب إجابة واضحة ومختصرة من 2 إلى 5 جمل.
+                ${if (selectedModel.id == "gemma_e4b") "إذا كان السؤال تحليليًا أو معقدًا، يمكنك التفصيل من 5 إلى 10 جمل." else ""}
+                
+                رسالة المستخدم:
+                $userInput
+            """.trimIndent()
+        }
 
         inputView.setText("")
         addChatMessage(ChatMessage(Role.USER, userInput))
         val assistantEntry = ChatMessage(Role.ASSISTANT, "")
         addChatMessage(assistantEntry)
-        saveChatHistory()
+        
+        val isFirstUserMessage = chatMessages.count { it.role == Role.USER } == 1
+        saveChatHistory(autoTitle = isFirstUserMessage, firstUserMessage = userInput)
 
-        startAssistantGeneration(prompt, assistantEntry, "Generating response...")
+        val sourceSection = if (retrievedChunks.isNotEmpty()) {
+            val sb = StringBuilder("\n\nالمصادر المستخدمة:\n")
+            retrievedChunks.forEachIndexed { index, chunk ->
+                val cleanedText = chunk.text
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                val excerpt = if (cleanedText.length > 250) {
+                    cleanedText.take(250) + "..."
+                } else {
+                    cleanedText
+                }
+                sb.append("${index + 1}. ${chunk.documentTitle}\n   \"$excerpt\"\n")
+            }
+            sb.toString()
+        } else ""
+
+        startAssistantGeneration(
+            prompt = prompt,
+            assistantMessage = assistantEntry,
+            statusMessage = "Generating response...",
+            sources = sourceSection,
+            completionStatus = if (sourceSection.isNotEmpty()) "تم استخدام ${retrievedChunks.size} مقتطفات من المستند" else "Ready."
+        )
     }
 
     private fun addChatMessage(message: ChatMessage) {
@@ -702,7 +1018,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createAssistantMessageView(message: String): View {
-        val messageText = buildAssistantDisplayText(message)
+        // If message already contains sources section or the prefix, don't add it again
+        val hasSources = message.contains("المصادر المستخدمة:")
+        val hasPrefix = message.startsWith("إجابة من المستند:")
+        
+        val displayText = if (getSelectedDocument() != null && !hasSources && !hasPrefix) {
+            "إجابة من المستند:\n$message"
+        } else {
+            message
+        }
+        
+        val messageText = buildAssistantDisplayText(displayText)
         return TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -801,6 +1127,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // lastAssistantResponse is already set to baseResponse in startAssistantGeneration
         copyToClipboard("آخر رد من نبض", lastAssistantResponse)
         setStatusSuccess("تم نسخ آخر رد")
         Toast.makeText(this, "تم نسخ آخر رد", Toast.LENGTH_SHORT).show()
@@ -855,6 +1182,7 @@ class MainActivity : AppCompatActivity() {
         return cleanModelOutput(text)
             .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
             .replace("**", "")
+            .replace("#", "")
             .replace(Regex("```[a-zA-Z0-9_+-]*\\n?"), "")
             .replace("```", "")
             .replace(Regex("(?m)^[ \\t]*[*-][ \\t]+"), "• ")
@@ -905,6 +1233,7 @@ class MainActivity : AppCompatActivity() {
         prompt: String,
         assistantMessage: ChatMessage,
         statusMessage: String,
+        sources: String = "",
         completionStatus: String = "Ready."
     ) {
         isGenerating = true
@@ -927,9 +1256,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                val finalText = cleanForDisplay(streamedOutput.toString()).ifBlank { "(Empty response)" }
+                val baseResponse = cleanForDisplay(streamedOutput.toString()).ifBlank { "(Empty response)" }
+                val finalText = baseResponse + sources
                 assistantMessage.text = finalText
-                lastAssistantResponse = finalText
+                lastAssistantResponse = baseResponse
                 updateAssistantMessage(finalText)
                 saveChatHistory()
                 setStatusSuccess(completionStatus)
@@ -966,7 +1296,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveChatHistory() {
+    private fun saveChatHistory(autoTitle: Boolean = false, firstUserMessage: String? = null) {
         val historyJson = JSONArray().apply {
             chatMessages.forEach { message ->
                 put(
@@ -978,67 +1308,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        preferences.edit()
-            .putString(KEY_CHAT_MESSAGES_JSON, historyJson.toString())
-            .putString(KEY_CHAT_HISTORY_TEXT, buildChatHistoryText())
-            .putString(KEY_SELECTED_MODEL_ID, selectedModel.id)
-            .putLong(KEY_LAST_UPDATED, System.currentTimeMillis())
-            .apply()
+        chatSessionStore.updateActiveSession(
+            messagesJson = historyJson.toString(),
+            lastAssistantResponse = lastAssistantResponse,
+            selectedDocumentId = documentStore.getSelectedDocumentId(),
+            documentAnswerLength = getAnswerLengthPreference(),
+            autoTitle = autoTitle,
+            firstUserMessage = firstUserMessage
+        )
     }
 
     private fun restoreChatHistory() {
-        chatMessages.clear()
-
-        val structuredHistory = preferences.getString(KEY_CHAT_MESSAGES_JSON, null)
-        if (!structuredHistory.isNullOrBlank()) {
-            runCatching {
-                val historyJson = JSONArray(structuredHistory)
-                for (index in 0 until historyJson.length()) {
-                    val item = historyJson.getJSONObject(index)
-                    chatMessages.add(
-                        ChatMessage(
-                            role = runCatching { Role.valueOf(item.optString("role", Role.ASSISTANT.name)) }
-                                .getOrDefault(Role.ASSISTANT),
-                            text = item.optString("text", ""),
-                            timestamp = item.optLong("timestamp", System.currentTimeMillis())
-                        )
-                    )
-                }
-            }
-        } else {
-            val textHistory = preferences.getString(KEY_CHAT_HISTORY_TEXT, null)
-            if (!textHistory.isNullOrBlank()) {
-                chatMessages.add(ChatMessage(Role.SYSTEM, textHistory))
-            }
-            val legacyHistory = preferences.getString(KEY_CHAT_HISTORY, null)
-            if (chatMessages.isEmpty() && !legacyHistory.isNullOrBlank()) {
-                val parsedLegacy = runCatching {
-                    val historyJson = JSONArray(legacyHistory)
-                    for (index in 0 until historyJson.length()) {
-                        val item = historyJson.getJSONObject(index)
-                        val label = item.optString("label", "نبض")
-                        val role = when (label) {
-                            "أنت" -> Role.USER
-                            "نبض" -> Role.ASSISTANT
-                            else -> Role.SYSTEM
-                        }
-                        chatMessages.add(
-                            ChatMessage(
-                                role = role,
-                                text = item.optString("text", "")
-                            )
-                        )
-                    }
-                }
-                if (parsedLegacy.isFailure) {
-                    chatMessages.add(ChatMessage(Role.SYSTEM, legacyHistory))
-                }
-            }
-        }
-
-        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
-        lastAssistantResponse = chatMessages.lastOrNull { it.role == Role.ASSISTANT }?.text?.trim().orEmpty()
-        renderChatHistory()
+        loadActiveSession()
     }
 
     private fun clearSavedChatHistory() {
@@ -1101,9 +1382,16 @@ class MainActivity : AppCompatActivity() {
         val subtitleView = sheetView.findViewById<TextView>(R.id.tvOptionsSubtitle)
         val statusChip = sheetView.findViewById<TextView>(R.id.tvStatusChip)
         val sectionModel = sheetView.findViewById<LinearLayout>(R.id.sectionModel)
+        val sectionChat = sheetView.findViewById<LinearLayout>(R.id.sectionChat)
         val sectionTools = sheetView.findViewById<LinearLayout>(R.id.sectionTools)
         val sectionConversation = sheetView.findViewById<LinearLayout>(R.id.sectionConversation)
         val sectionInfo = sheetView.findViewById<LinearLayout>(R.id.sectionInfo)
+
+        // Hide specific sections as we will consolidate them
+        sectionChat.visibility = View.GONE
+        sheetView.findViewById<TextView>(R.id.sectionChat).parent.let { 
+            // This is a bit hacky to hide the title TextView too, better to refactor XML but let's keep it simple
+        }
 
         subtitleView.text = modelDescription(selectedModel)
 
@@ -1136,23 +1424,17 @@ class MainActivity : AppCompatActivity() {
             if (engine != null && conversation != null && loadedModelId == selectedModel.id) unloadModel() else loadModel()
         }
 
+        // --- NEW TOOLS CENTER ENTRY ---
+        addOptionRow(sectionTools, "◈", "مركز الأدوات", "أدوات الهاتف والمستندات والمحادثات") {
+            dialog.dismiss()
+            showToolsCenter()
+        }
+
         addOptionRow(sectionTools, "＋", "إضافة ملف") {
             dialog.dismiss()
             showAttachmentTypeDialog()
         }
-        addOptionRow(sectionTools, "⧉", "لصق من الحافظة") {
-            dialog.dismiss()
-            pasteFromClipboard()
-        }
 
-        addOptionRow(sectionConversation, "⧉", "نسخ المحادثة") {
-            dialog.dismiss()
-            copyFullConversation()
-        }
-        addOptionRow(sectionConversation, "⧉", "نسخ آخر رد") {
-            dialog.dismiss()
-            copyLastAssistantResponse()
-        }
         addOptionRow(
             container = sectionConversation,
             icon = "×",
@@ -1173,19 +1455,446 @@ class MainActivity : AppCompatActivity() {
                 dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return@setOnShowListener
             val behavior = BottomSheetBehavior.from(bottomSheet)
             val screenHeight = resources.displayMetrics.heightPixels
-            val peekHeight = (screenHeight * 0.60f).toInt()
             val maxHeight = (screenHeight * 0.75f).toInt()
 
             bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
                 height = maxHeight
             }
-            behavior.peekHeight = peekHeight
             behavior.skipCollapsed = false
             behavior.isDraggable = true
             behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
 
         dialog.show()
+    }
+
+    private fun showToolsCenter() {
+        val sheetView = LayoutInflater.from(this).inflate(R.layout.bottom_sheet_options, null)
+        val dialog = BottomSheetDialog(this)
+        dialog.setContentView(sheetView)
+        
+        sheetView.findViewById<TextView>(R.id.tvOptionsTitle).text = "مركز الأدوات"
+        sheetView.findViewById<TextView>(R.id.tvOptionsSubtitle).text = "كافة الأدوات المتاحة محلياً"
+        sheetView.findViewById<TextView>(R.id.tvStatusChip).visibility = View.GONE
+
+        val sectionModel = sheetView.findViewById<LinearLayout>(R.id.sectionModel)
+        val sectionChat = sheetView.findViewById<LinearLayout>(R.id.sectionChat)
+        val sectionTools = sheetView.findViewById<LinearLayout>(R.id.sectionTools)
+        val sectionConversation = sheetView.findViewById<LinearLayout>(R.id.sectionConversation)
+        val sectionInfo = sheetView.findViewById<LinearLayout>(R.id.sectionInfo)
+
+        // Reuse existing layout structure with new labels
+        (sectionModel.parent as LinearLayout).getChildAt(0).let { if (it is TextView) it.text = "أدوات الهاتف" }
+        (sectionChat.parent as LinearLayout).getChildAt(2).let { if (it is TextView) it.text = "أدوات المستندات" }
+        (sectionTools.parent as LinearLayout).getChildAt(4).let { if (it is TextView) it.text = "أدوات المحادثات" }
+        sectionInfo.parent.let { (it as View).visibility = View.GONE } // Hide Info section here
+
+        // 1. Phone Tools
+        addOptionRow(sectionModel, "🔋", "حالة البطارية") {
+            dialog.dismiss()
+            appendToolResultToChat(phoneToolManager.getBatteryStatus())
+        }
+        addOptionRow(sectionModel, "ℹ", "معلومات الجهاز") {
+            dialog.dismiss()
+            appendToolResultToChat(phoneToolManager.getDeviceInfo())
+        }
+        addOptionRow(sectionModel, "💾", "التخزين") {
+            dialog.dismiss()
+            appendToolResultToChat(phoneToolManager.getStorageInfo())
+        }
+        addOptionRow(sectionModel, "📱", "التطبيقات المثبتة") {
+            dialog.dismiss()
+            appendToolResultToChat(phoneToolManager.getInstalledAppsSummary())
+        }
+
+        // 2. Document Tools
+        val selectedDocument = getSelectedDocument()
+        addOptionRow(
+            sectionChat,
+            "▤",
+            "مكتبة المستندات",
+            selectedDocument?.let { "${it.title} • ${documentTypeLabel(it.type)}" }
+        ) {
+            dialog.dismiss()
+            showDocumentLibraryDialog()
+        }
+        addOptionRow(
+            sectionChat,
+            "▦",
+            "طول إجابة المستند",
+            answerLengthLabel(getAnswerLengthPreference())
+        ) {
+            dialog.dismiss()
+            showAnswerLengthDialog()
+        }
+        if (selectedDocument != null) {
+            addOptionRow(sectionChat, "×", "إلغاء اختيار المستند") {
+                dialog.dismiss()
+                clearSelectedDocument()
+                saveChatHistory()
+            }
+        }
+
+        // 3. Conversation Tools
+        addOptionRow(sectionTools, "+", "محادثة جديدة") {
+            dialog.dismiss()
+            startNewChat()
+        }
+        addOptionRow(sectionTools, "☰", "سجل المحادثات") {
+            dialog.dismiss()
+            showChatHistoryDialog()
+        }
+        addOptionRow(sectionTools, "⧉", "نسخ المحادثة") {
+            dialog.dismiss()
+            copyFullConversation()
+        }
+        addOptionRow(sectionTools, "⧉", "نسخ آخر رد") {
+            dialog.dismiss()
+            copyLastAssistantResponse()
+        }
+        addOptionRow(sectionTools, "⧉", "لصق من الحافظة") {
+            dialog.dismiss()
+            pasteFromClipboard()
+        }
+
+        dialog.show()
+    }
+
+    private fun showPhoneToolsDialog() {
+        val tools = arrayOf("حالة البطارية", "معلومات الجهاز", "التخزين", "التطبيقات المثبتة")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("أدوات الهاتف")
+            .setItems(tools) { _, which ->
+                val result = when (which) {
+                    0 -> phoneToolManager.getBatteryStatus()
+                    1 -> phoneToolManager.getDeviceInfo()
+                    2 -> phoneToolManager.getStorageInfo()
+                    3 -> phoneToolManager.getInstalledAppsSummary()
+                    else -> null
+                }
+                result?.let { appendToolResultToChat(it) }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun appendToolResultToChat(result: PhoneToolResult) {
+        val messageText = "[${result.title}]\n${result.content}"
+        addChatMessage(ChatMessage(Role.ASSISTANT, messageText))
+        saveChatHistory()
+        setStatusSuccess("تم استخراج ${result.title}")
+    }
+
+    private fun showChatHistoryDialog() {
+        val sessions = chatSessionStore.getAllSessions()
+        if (sessions.isEmpty()) {
+            Toast.makeText(this, "لا توجد محادثات سابقة", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val activeId = chatSessionStore.getActiveSessionId()
+        val items = sessions.map { session ->
+            val activeSuffix = if (session.id == activeId) " (الحالية)" else ""
+            "${session.title}$activeSuffix\n${formatDocumentDate(session.updatedAt)}"
+        }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("سجل المحادثات")
+            .setItems(items) { _, which ->
+                showChatSessionActionsDialog(sessions[which])
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showChatSessionActionsDialog(session: ChatSession) {
+        val actions = arrayOf("فتح", "إعادة تسمية", "حذف", "نسخ المحادثة")
+        MaterialAlertDialogBuilder(this)
+            .setTitle(session.title)
+            .setItems(actions) { dialog, which ->
+                dialog.dismiss()
+                when (which) {
+                    0 -> switchSession(session.id)
+                    1 -> showRenameSessionDialog(session)
+                    2 -> confirmDeleteSession(session)
+                    3 -> copySessionText(session)
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showRenameSessionDialog(session: ChatSession) {
+        val input = EditText(this).apply {
+            setText(session.title)
+            setPadding(dpToPx(20), dpToPx(10), dpToPx(20), dpToPx(10))
+        }
+        
+        MaterialAlertDialogBuilder(this)
+            .setTitle("إعادة تسمية المحادثة")
+            .setView(input)
+            .setPositiveButton("حفظ") { _, _ ->
+                val newTitle = input.text.toString().trim()
+                if (newTitle.isNotEmpty()) {
+                    chatSessionStore.renameSession(session.id, newTitle)
+                    setStatusInfo(currentStatus())
+                    Toast.makeText(this, "تم تغيير الاسم", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun confirmDeleteSession(session: ChatSession) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف المحادثة؟")
+            .setMessage("سيتم حذف \"${session.title}\" نهائياً.")
+            .setPositiveButton("حذف") { _, _ ->
+                val wasActive = session.id == chatSessionStore.getActiveSessionId()
+                chatSessionStore.deleteSession(session.id)
+                if (wasActive) {
+                    loadActiveSession()
+                    renderChatHistory()
+                }
+                setStatusInfo("تم حذف المحادثة")
+                Toast.makeText(this, "تم حذف المحادثة", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun copySessionText(session: ChatSession) {
+        val messages = mutableListOf<ChatMessage>()
+        runCatching {
+            val array = JSONArray(session.messagesJson)
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                messages.add(ChatMessage(
+                    role = Role.valueOf(item.getString("role")),
+                    text = item.getString("text")
+                ))
+            }
+        }
+        
+        val text = messages.filter { it.text.isNotBlank() }.joinToString("\n\n") { message ->
+            when (message.role) {
+                Role.USER -> "أنت:\n${message.text}"
+                Role.ASSISTANT -> "نبض:\n${message.text}"
+                Role.SYSTEM -> message.text
+            }
+        }
+        
+        if (text.isNotBlank()) {
+            copyToClipboard("محادثة نبض", text)
+            Toast.makeText(this, "تم نسخ المحادثة", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun getToolIntentLabel(intent: PhoneToolIntent): String {
+        return when (intent) {
+            PhoneToolIntent.BATTERY -> "حالة البطارية"
+            PhoneToolIntent.DEVICE_INFO -> "معلومات الجهاز"
+            PhoneToolIntent.STORAGE -> "التخزين"
+            PhoneToolIntent.INSTALLED_APPS -> "التطبيقات المثبتة"
+        }
+    }
+
+    private fun showPhoneToolConfirmation(userInput: String, intents: List<PhoneToolIntent>) {
+        inputView.setText("")
+        addChatMessage(ChatMessage(Role.USER, userInput))
+        
+        val toolListText = intents.joinToString("\n") { "${intents.indexOf(it) + 1}. ${getToolIntentLabel(it)}" }
+        val suggestionMessage = "أستطيع تنفيذ أدوات الهاتف التالية:\n$toolListText\n\nهل تريد تنفيذها؟"
+        
+        val assistantEntry = ChatMessage(Role.ASSISTANT, suggestionMessage)
+        addChatMessage(assistantEntry)
+        saveChatHistory(autoTitle = chatMessages.count { it.role == Role.USER } == 1, firstUserMessage = userInput)
+
+        val dialogMessage = "سيتم تنفيذ الأدوات التالية محليًا على جهازك فقط:\n" + 
+                intents.joinToString("\n") { "- ${getToolIntentLabel(it)}" }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("تنفيذ أدوات الهاتف؟")
+            .setMessage(dialogMessage)
+            .setCancelable(false)
+            .setPositiveButton("تنفيذ") { _, _ ->
+                executePhoneTools(intents)
+            }
+            .setNegativeButton("إلغاء") { _, _ ->
+                val cancelMessage = "تم إلغاء تنفيذ أدوات الهاتف."
+                val cancelEntry = ChatMessage(Role.ASSISTANT, cancelMessage)
+                addChatMessage(cancelEntry)
+                lastAssistantResponse = cancelMessage
+                saveChatHistory()
+                setStatusInfo("تم إلغاء التنفيذ")
+            }
+            .show()
+    }
+
+    private fun executePhoneTools(intents: List<PhoneToolIntent>) {
+        val results = mutableListOf<String>()
+        intents.forEach { intent ->
+            val result = when (intent) {
+                PhoneToolIntent.BATTERY -> phoneToolManager.getBatteryStatus()
+                PhoneToolIntent.DEVICE_INFO -> phoneToolManager.getDeviceInfo()
+                PhoneToolIntent.STORAGE -> phoneToolManager.getStorageInfo()
+                PhoneToolIntent.INSTALLED_APPS -> phoneToolManager.getInstalledAppsSummary()
+            }
+            results.add("[${result.title}]\n${result.content}")
+        }
+        
+        val finalToolResponse = "نتيجة أدوات الهاتف:\n\n" + results.joinToString("\n\n")
+        val resultEntry = ChatMessage(Role.ASSISTANT, finalToolResponse)
+        addChatMessage(resultEntry)
+        lastAssistantResponse = finalToolResponse
+        saveChatHistory()
+        setStatusSuccess("تم تنفيذ أدوات الهاتف")
+    }
+
+    private fun showDocumentLibraryDialog() {
+        val documents = documentStore.getDocuments()
+        if (documents.isEmpty()) {
+            setStatusError("لا توجد مستندات محفوظة")
+            Toast.makeText(this, "لا توجد مستندات محفوظة", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val items = documents.map { document ->
+            "${document.title}\n${documentTypeLabel(document.type)} • ${formatDocumentDate(document.createdAt)} • ${document.extractedText.length} حرف"
+        }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("مكتبة المستندات")
+            .setItems(items) { _, which ->
+                showDocumentActionsDialog(documents[which])
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showDocumentActionsDialog(document: LocalDocument) {
+        val actions = arrayOf("اختيار", "حذف", "نسخ النص")
+        MaterialAlertDialogBuilder(this)
+            .setTitle(document.title)
+            .setItems(actions) { dialog, which ->
+                dialog.dismiss()
+                when (which) {
+                    0 -> {
+                        documentStore.setSelectedDocumentId(document.id)
+                        setStatusSuccess("تم اختيار المستند: ${document.title}")
+                        setStatusInfo(currentStatus())
+                    }
+                    1 -> confirmDeleteDocument(document)
+                    2 -> {
+                        copyToClipboard(document.title, document.extractedText)
+                        setStatusSuccess("تم نسخ نص المستند")
+                        Toast.makeText(this, "تم نسخ نص المستند", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun confirmDeleteDocument(document: LocalDocument) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف المستند؟")
+            .setMessage("سيتم حذف \"${document.title}\" من مكتبة المستندات المحلية.")
+            .setPositiveButton("حذف") { _, _ ->
+                documentStore.deleteDocument(document.id)
+                setStatusSuccess("تم حذف المستند")
+                if (getSelectedDocument() == null) {
+                    setStatusInfo(currentStatus())
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun formatDocumentDate(timestamp: Long): String {
+        return runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestamp))
+        }.getOrDefault("غير معروف")
+    }
+
+    private fun documentTypeLabel(type: String): String {
+        return when (type) {
+            "pdf" -> "PDF"
+            "image" -> "صورة"
+            "text" -> "نص"
+            else -> type
+        }
+    }
+
+    private fun getAnswerLengthPreference(): String {
+        return preferences.getString(KEY_DOCUMENT_ANSWER_LENGTH, "short") ?: "short"
+    }
+
+    private fun saveAnswerLengthPreference(value: String) {
+        preferences.edit()
+            .putString(KEY_DOCUMENT_ANSWER_LENGTH, value)
+            .apply()
+    }
+
+    private fun answerLengthLabel(value: String): String {
+        return when (value) {
+            "short" -> "مختصر"
+            "medium" -> "متوسط"
+            "detailed" -> "مفصل"
+            else -> "مختصر"
+        }
+    }
+
+    private fun getAnswerLengthInstruction(userInput: String): String {
+        val inputLow = userInput.trim().lowercase()
+        val preference = getAnswerLengthPreference()
+
+        val effectiveLength = when {
+            inputLow.contains("بالتفصيل") || inputLow.contains("شرح مفصل") -> "detailed"
+            inputLow.contains("اهم 3 نقاط") || inputLow.contains("أهم 3 نقاط") ||
+            inputLow.contains("3 نقاط") || inputLow.contains("ثلاث نقاط") -> "points_3"
+            inputLow.contains("ملخص") || inputLow.contains("اختصر") || inputLow.contains("باختصار") -> "short"
+            else -> preference
+        }
+
+        val baseInstruction = when (effectiveLength) {
+            "short" -> "اكتب إجابة مختصرة جدًا. إذا طلب المستخدم نقاطًا، اكتب 3 نقاط فقط. لا تضف ملاحظات أو استنتاجات إلا إذا طلب المستخدم ذلك."
+            "medium" -> "اكتب إجابة متوسطة الطول. استخدم 3 إلى 5 نقاط عند الحاجة."
+            "detailed" -> "اكتب إجابة مفصلة ومنظمة. يمكن إضافة ملاحظات واستنتاجات عند الحاجة."
+            "points_3" -> "اكتب 3 نقاط فقط كإجابة. لا تضف أي نص آخر."
+            else -> "اكتب إجابة مختصرة جدًا. إذا طلب المستخدم نقاطًا، اكتب 3 نقاط فقط. لا تضف ملاحظات أو استنتاجات إلا إذا طلب المستخدم ذلك."
+        }
+
+        return if (inputLow.contains("نقاط") || inputLow.contains("ملخص") || inputLow.contains("نقاطا")) {
+            """
+            $baseInstruction
+            اكتبها بهذا الشكل:
+            1. ...
+            2. ...
+            3. ...
+            """.trimIndent()
+        } else {
+            baseInstruction
+        }
+    }
+
+    private fun showAnswerLengthDialog() {
+        val labels = arrayOf("مختصر", "متوسط", "مفصل")
+        val values = arrayOf("short", "medium", "detailed")
+        val currentValue = getAnswerLengthPreference()
+        val selectedIndex = values.indexOf(currentValue).coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("طول إجابة المستند")
+            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
+                val newValue = values[which]
+                saveAnswerLengthPreference(newValue)
+                setStatusSuccess("تم ضبط طول إجابة المستند: ${answerLengthLabel(newValue)}")
+                Toast.makeText(this, "تم ضبط طول إجابة المستند: ${answerLengthLabel(newValue)}", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
     }
 
     private fun addOptionRow(
@@ -1260,5 +1969,6 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         private const val KEY_LAST_UPDATED = "last_updated"
+        private const val KEY_DOCUMENT_ANSWER_LENGTH = "document_answer_length"
     }
 }
