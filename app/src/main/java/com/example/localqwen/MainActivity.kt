@@ -39,6 +39,7 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.mlkit.vision.common.InputImage
@@ -177,13 +178,13 @@ class MainActivity : AppCompatActivity() {
                 chatMessages.add(
                     ChatMessage(
                         role = role,
-                        text = item.optString("text", ""),
+                        text = normalizeMessageText(role, item.optString("text", "")),
                         timestamp = item.optLong("timestamp", System.currentTimeMillis())
                     )
                 )
             }
         }
-        lastAssistantResponse = session.lastAssistantResponse
+        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse)
         activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
         session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
     }
@@ -397,9 +398,33 @@ class MainActivity : AppCompatActivity() {
 
         val context = buildDocumentContext(input)
         val prompt = if (context != null) {
-            "أنت نبض، أجب بناءً على السياق.\n\n$context\n\nالسؤال: $input"
+            """
+            أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
+            أجب بالعربية فقط.
+            أجب مباشرة على سؤال المستخدم.
+            استخدم سياق المستند التالي إن كان مفيدًا.
+            إذا لم تكن الإجابة موجودة في السياق، قل بوضوح إن النص المتوفر لا يحتوي على إجابة كافية.
+            لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
+            لا تعرض التفكير الداخلي.
+
+            سياق المستند:
+            $context
+
+            سؤال المستخدم:
+            $input
+            """.trimIndent()
         } else {
-            "أنت نبض، أجب بالعربية.\n\nالسؤال: $input"
+            """
+            أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
+            أجب بالعربية فقط.
+            أجب مباشرة على سؤال المستخدم.
+            لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
+            اجعل الإجابة مختصرة ومنظمة، ولا تطِل إلا إذا طلب المستخدم التفصيل.
+            لا تعرض التفكير الداخلي.
+
+            سؤال المستخدم:
+            $input
+            """.trimIndent()
         }
 
         inputView.setText("")
@@ -415,10 +440,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addChatMessage(message: ChatMessage) {
-        chatMessages.add(message)
-        val view = createMessageView(message)
+        val normalizedMessage = if (message.text.isBlank()) {
+            message
+        } else {
+            message.copy(text = normalizeMessageText(message.role, message.text))
+        }
+        chatMessages.add(normalizedMessage)
+        if (normalizedMessage.role == Role.ASSISTANT && normalizedMessage.text.isNotBlank()) {
+            lastAssistantResponse = normalizedMessage.text
+        }
+        val view = createMessageView(normalizedMessage)
         chatContainer.addView(view)
-        if (message.role == Role.ASSISTANT) {
+        if (normalizedMessage.role == Role.ASSISTANT) {
             activeAssistantMessageIndex = chatMessages.lastIndex
             activeAssistantTextView = view as? TextView
         }
@@ -427,8 +460,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateAssistantMessage(text: String, forceScroll: Boolean = false) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
-        chatMessages[activeAssistantMessageIndex].text = text
-        activeAssistantTextView?.text = formatAssistantMessage(text)
+        val cleanedText = cleanForDisplay(text)
+        chatMessages[activeAssistantMessageIndex].text = cleanedText
+        activeAssistantTextView?.text = formatAssistantMessage(cleanedText)
         scheduleAutoScroll(force = forceScroll)
     }
 
@@ -448,8 +482,8 @@ class MainActivity : AppCompatActivity() {
     private fun createMessageView(message: ChatMessage): View {
         return when (message.role) {
             Role.USER -> createUserMessageView(displayTextForChat(message.text))
-            Role.ASSISTANT -> createAssistantMessageView(displayTextForChat(message.text))
-            Role.SYSTEM -> createSystemMessageView(displayTextForChat(message.text))
+            Role.ASSISTANT -> createAssistantMessageView(message.text)
+            Role.SYSTEM -> createSystemMessageView(displayTextForChat(cleanForDisplay(message.text)))
         }
     }
 
@@ -481,7 +515,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatAssistantMessage(message: String): String {
-        return "نبض:\n${displayTextForChat(message)}"
+        return "نبض:\n${displayTextForChat(cleanForDisplay(message))}"
     }
 
     private fun displayTextForChat(text: String): String {
@@ -490,6 +524,43 @@ class MainActivity : AppCompatActivity() {
         } else {
             text.take(MAX_CHAT_DISPLAY_CHARS) + "\n\n(تم اختصار العرض لطول المحادثة)"
         }
+    }
+
+    private fun normalizeMessageText(role: Role, text: String): String {
+        return when (role) {
+            Role.USER -> text.trim()
+            Role.ASSISTANT, Role.SYSTEM -> cleanForDisplay(text)
+        }
+    }
+
+    private fun cleanForDisplay(text: String): String {
+        if (text.isBlank()) return text.trim()
+
+        val withoutThinking = text
+            .replace(Regex("(?is)<think>.*?</think>"), "")
+            .replace("<think>", "")
+            .replace("</think>", "")
+            .replace(Regex("<\\|[^>]+\\|>"), "")
+            .replace("**", "")
+            .replace("__", "")
+            .replace("`", "")
+
+        val normalizedLines = withoutThinking
+            .lines()
+            .map { line ->
+                line
+                    .replace(Regex("^\\s*#{1,4}\\s*"), "")
+                    .replace(Regex("^\\s*[\\*-]\\s+"), "• ")
+                    .replace(Regex("^\\s*•\\s+"), "• ")
+                    .replace(Regex("[ \\t]+"), " ")
+                    .trimEnd()
+            }
+            .joinToString("\n")
+
+        return normalizedLines
+            .replace(Regex("\n\\s*\n(?:\\s*\n)+"), "\n\n")
+            .replace(Regex("[ \\t]+\n"), "\n")
+            .trim()
     }
 
     private fun scheduleAutoScroll(force: Boolean = false) {
@@ -513,21 +584,25 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val output = StringBuilder()
+                var lastRenderedRawLength = 0
                 withContext(Dispatchers.IO) {
                     currentConversation.sendMessageAsync(prompt).collect { chunk ->
                         output.append(chunk.toString())
-                        val shouldRefresh = output.length <= 256 || output.length - assistant.text.length >= STREAM_UPDATE_MIN_CHARS
+                        val shouldRefresh =
+                            output.length <= 256 || output.length - lastRenderedRawLength >= STREAM_UPDATE_MIN_CHARS
                         if (shouldRefresh) {
                             val snapshot = output.toString()
+                            lastRenderedRawLength = output.length
                             withContext(Dispatchers.Main) {
-                                assistant.text = snapshot
-                                updateAssistantMessage(snapshot)
+                                val cleanedSnapshot = cleanForDisplay(snapshot)
+                                assistant.text = cleanedSnapshot
+                                updateAssistantMessage(cleanedSnapshot)
                             }
                         }
                     }
                 }
 
-                val finalText = output.toString().ifBlank { "(فارغ)" }
+                val finalText = cleanForDisplay(output.toString()).ifBlank { "(فارغ)" }
                 assistant.text = finalText
                 lastAssistantResponse = finalText
                 updateAssistantMessage(finalText, forceScroll = true)
@@ -671,13 +746,48 @@ class MainActivity : AppCompatActivity() {
         val dialog = BottomSheetDialog(this)
         dialog.setContentView(sheet)
 
+        val subtitleView = sheet.findViewById<TextView>(R.id.tvOptionsSubtitle)
+        val statusChip = sheet.findViewById<TextView>(R.id.tvStatusChip)
+        subtitleView.text = modelDescription(selectedModel)
+        val isModelActive = engine != null && loadedModelId == selectedModel.id
+        val isModelImported = modelManager.isModelReady(selectedModel)
+        statusChip.text = when {
+            isModelActive -> "مشغّل"
+            isModelImported -> "جاهز"
+            else -> "غير مستورد"
+        }
+        if (isModelImported) {
+            statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_ready)
+            statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_success))
+        } else {
+            statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_inactive)
+            statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_text_secondary))
+        }
+
         addOptionRow(
             sheet.findViewById(R.id.sectionModel),
-            "▶",
-            if (engine != null) "إيقاف نبض" else "تشغيل نبض"
+            "◉",
+            "اختيار النموذج",
+            subtitle = modelDescription(selectedModel)
         ) {
             dialog.dismiss()
-            if (engine != null) unloadModel() else loadModel()
+            showModelSelectionDialog()
+        }
+        addOptionRow(
+            sheet.findViewById(R.id.sectionModel),
+            if (isModelActive) "■" else "▶",
+            if (isModelActive) "إيقاف نبض" else "تشغيل نبض"
+        ) {
+            dialog.dismiss()
+            if (isModelActive) unloadModel() else loadModel()
+        }
+        addOptionRow(
+            sheet.findViewById(R.id.sectionModel),
+            "⇩",
+            "استيراد النموذج"
+        ) {
+            dialog.dismiss()
+            openFilePicker()
         }
         addOptionRow(sheet.findViewById(R.id.sectionTools), "◈", "مركز الأدوات") {
             dialog.dismiss()
@@ -691,10 +801,28 @@ class MainActivity : AppCompatActivity() {
             sheet.findViewById(R.id.sectionConversation),
             "×",
             "مسح",
-            titleColor = Color.RED
+            titleColor = ContextCompat.getColor(this, R.color.nabd_error),
+            iconColor = ContextCompat.getColor(this, R.color.nabd_error)
         ) {
             dialog.dismiss()
             confirmClearChat()
+        }
+        addOptionRow(sheet.findViewById(R.id.sectionInfo), "؟", "حول نبض") {
+            dialog.dismiss()
+            showAboutDialog()
+        }
+
+        dialog.setOnShowListener {
+            val bottomSheet =
+                dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return@setOnShowListener
+            val behavior = BottomSheetBehavior.from(bottomSheet)
+            val screenHeight = resources.displayMetrics.heightPixels
+            bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+                height = (screenHeight * 0.72f).toInt()
+            }
+            behavior.peekHeight = (screenHeight * 0.60f).toInt()
+            behavior.state = BottomSheetBehavior.STATE_EXPANDED
+            behavior.isDraggable = true
         }
         dialog.show()
     }
@@ -718,17 +846,74 @@ class MainActivity : AppCompatActivity() {
         container: LinearLayout,
         icon: String,
         title: String,
-        titleColor: Int = Color.BLACK,
+        subtitle: String? = null,
+        titleColor: Int = ContextCompat.getColor(this, R.color.nabd_on_surface),
+        iconColor: Int = Color.parseColor("#A0A0A0"),
+        enabled: Boolean = true,
         onClick: () -> Unit
     ) {
         val row = LayoutInflater.from(this).inflate(R.layout.item_option_row, container, false)
-        row.findViewById<TextView>(R.id.tvOptionIcon).text = icon
+        row.findViewById<TextView>(R.id.tvOptionIcon).apply {
+            text = icon
+            setTextColor(iconColor)
+            alpha = if (enabled) 1.0f else 0.45f
+        }
         row.findViewById<TextView>(R.id.tvOptionTitle).apply {
             text = title
             setTextColor(titleColor)
+            alpha = if (enabled) 1.0f else 0.45f
         }
-        row.setOnClickListener { onClick() }
+        row.findViewById<TextView>(R.id.tvOptionSubtitle).apply {
+            if (subtitle.isNullOrBlank()) {
+                visibility = View.GONE
+            } else {
+                visibility = View.VISIBLE
+                text = subtitle
+                alpha = if (enabled) 1.0f else 0.45f
+            }
+        }
+        row.alpha = if (enabled) 1.0f else 0.45f
+        row.isEnabled = enabled
+        row.setOnClickListener { if (enabled) onClick() }
         container.addView(row)
+    }
+
+    private fun modelDescription(model: SupportedModel): String {
+        return when (model.id) {
+            "gemma_e2b" -> "${model.displayName} — سريع ومتوازن"
+            "gemma_e4b" -> "${model.displayName} — للمهام الثقيلة"
+            else -> model.displayName
+        }
+    }
+
+    private fun showModelSelectionDialog() {
+        val selectedIndex = supportedModels.indexOfFirst { it.id == selectedModel.id }.coerceAtLeast(0)
+        val labels = supportedModels.map { modelDescription(it) }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("اختيار النموذج")
+            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
+                selectModel(which)
+                dialog.dismiss()
+            }
+            .setNegativeButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showAboutDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حول نبض")
+            .setMessage(
+                """
+                نبض
+                مساعد ذكاء اصطناعي محلي يعمل على جهازك.
+
+                النماذج المدعومة:
+                • Gemma E2B
+                • Gemma E4B
+                """.trimIndent()
+            )
+            .setPositiveButton("إغلاق", null)
+            .show()
     }
 
     private fun showPhoneToolConfirmation(input: String, intents: List<PhoneToolIntent>) {
@@ -1038,7 +1223,16 @@ class MainActivity : AppCompatActivity() {
                     val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
                     addChatMessage(assistant)
                     startAssistantGeneration(
-                        "أنت نبض، حلل النص المستخرج من الصورة:\n${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}",
+                        """
+                        أنت "نبض"، مساعد ذكاء اصطناعي محلي.
+                        حلل النص المستخرج من الصورة.
+                        أجب بالعربية فقط.
+                        لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
+                        اجعل الإجابة واضحة ومباشرة.
+
+                        النص المستخرج:
+                        ${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}
+                        """.trimIndent(),
                         assistant,
                         "جاري التحليل..."
                     )
@@ -1079,7 +1273,16 @@ class MainActivity : AppCompatActivity() {
                     val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
                     addChatMessage(assistant)
                     startAssistantGeneration(
-                        "أنت نبض، حلل النص المستخرج من PDF:\n${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}",
+                        """
+                        أنت "نبض"، مساعد ذكاء اصطناعي محلي.
+                        حلل النص المستخرج من ملف PDF.
+                        أجب بالعربية فقط.
+                        لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
+                        اجعل الإجابة واضحة ومباشرة.
+
+                        النص المستخرج:
+                        ${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}
+                        """.trimIndent(),
                         assistant,
                         "جاري التحليل..."
                     )
