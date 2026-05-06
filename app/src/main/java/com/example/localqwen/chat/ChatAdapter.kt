@@ -3,6 +3,7 @@ package com.example.localqwen.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,11 +11,18 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 import com.example.localqwen.R
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.tables.TablePlugin
 
 class ChatAdapter(
     private val context: Context,
     private val messages: MutableList<ChatMessage> = mutableListOf()
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    private val appContext = context.applicationContext
+    private val markwon: Markwon = Markwon.builder(appContext)
+        .usePlugin(TablePlugin.create(appContext))
+        .build()
+    private var streamingAssistantIndex = RecyclerView.NO_POSITION
 
     override fun getItemCount(): Int = messages.size
 
@@ -34,7 +42,8 @@ class ChatAdapter(
             )
 
             VIEW_TYPE_ASSISTANT -> AssistantMessageViewHolder(
-                inflater.inflate(R.layout.item_message_assistant, parent, false)
+                inflater.inflate(R.layout.item_message_assistant, parent, false),
+                markwon
             )
 
             else -> SystemMessageViewHolder(
@@ -47,7 +56,10 @@ class ChatAdapter(
         val message = messages[position]
         when (holder) {
             is UserMessageViewHolder -> holder.bind(message)
-            is AssistantMessageViewHolder -> holder.bind(message)
+            is AssistantMessageViewHolder -> holder.bind(
+                message = message,
+                renderMarkdown = position != streamingAssistantIndex
+            )
             is SystemMessageViewHolder -> holder.bind(message)
         }
 
@@ -58,6 +70,7 @@ class ChatAdapter(
     }
 
     fun submitMessages(newMessages: List<ChatMessage>) {
+        streamingAssistantIndex = RecyclerView.NO_POSITION
         messages.clear()
         messages.addAll(newMessages)
         notifyDataSetChanged()
@@ -74,14 +87,28 @@ class ChatAdapter(
         notifyItemChanged(position)
     }
 
-    fun updateLastAssistantMessage(text: String) {
+    fun updateLastAssistantMessage(text: String, renderMarkdown: Boolean = true) {
         val index = messages.indexOfLast { it.role == Role.ASSISTANT }
         if (index != -1) {
+            streamingAssistantIndex = if (renderMarkdown) {
+                if (streamingAssistantIndex == index) RecyclerView.NO_POSITION else streamingAssistantIndex
+            } else {
+                index
+            }
             updateMessage(index, text)
         }
     }
 
+    fun markLastAssistantStreaming() {
+        val index = messages.indexOfLast { it.role == Role.ASSISTANT }
+        if (index != -1) {
+            streamingAssistantIndex = index
+            notifyItemChanged(index)
+        }
+    }
+
     fun clearMessages() {
+        streamingAssistantIndex = RecyclerView.NO_POSITION
         messages.clear()
         notifyDataSetChanged()
     }
@@ -100,11 +127,22 @@ class ChatAdapter(
         }
     }
 
-    private class AssistantMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+    private class AssistantMessageViewHolder(
+        itemView: View,
+        private val markwon: Markwon
+    ) : RecyclerView.ViewHolder(itemView) {
         private val messageText: TextView = itemView.findViewById(R.id.tvMessageText)
 
-        fun bind(message: ChatMessage) {
-            messageText.text = message.text
+        init {
+            messageText.movementMethod = LinkMovementMethod.getInstance()
+        }
+
+        fun bind(message: ChatMessage, renderMarkdown: Boolean) {
+            if (renderMarkdown) {
+                markwon.setMarkdown(messageText, message.text)
+            } else {
+                messageText.text = message.text
+            }
         }
     }
 

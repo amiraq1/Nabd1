@@ -36,6 +36,7 @@ import com.example.localqwen.document.DocumentToolRouter
 import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.model.ModelManager
 import com.example.localqwen.model.ModelManager.SupportedModel
+import com.example.localqwen.prompt.NabdSystemPrompt
 import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
@@ -179,7 +180,7 @@ class MainActivity : AppCompatActivity() {
         val session = chatSessionStore.getActiveOrCreateSession()
         chatMessages.clear()
         chatMessages.addAll(loadChatMessages(session.messagesJson))
-        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse)
+        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse, preserveMarkdown = true)
         activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
         session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
     }
@@ -378,6 +379,14 @@ class MainActivity : AppCompatActivity() {
         setStatusSuccess("تم ضبط طول إجابة المستند: ${documentAnswerLengthLabel(value)}")
     }
 
+    private fun currentDocumentAnswerLengthInstruction(): String {
+        return when (currentDocumentAnswerLength()) {
+            "medium" -> "اجعل الإجابة متوسطة الطول مع بعض التفصيل."
+            "long" -> "اجعل الإجابة مفصلة ومنظمة مع شرح أوضح."
+            else -> "اجعل الإجابة مختصرة ومباشرة."
+        }
+    }
+
     private fun copyToClipboard(label: String, text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -553,33 +562,13 @@ class MainActivity : AppCompatActivity() {
 
         val context = buildDocumentContext(input)
         val prompt = if (context != null) {
-            """
-            أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
-            أجب بالعربية فقط.
-            أجب مباشرة على سؤال المستخدم.
-            استخدم سياق المستند التالي إن كان مفيدًا.
-            إذا لم تكن الإجابة موجودة في السياق، قل بوضوح إن النص المتوفر لا يحتوي على إجابة كافية.
-            لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
-            لا تعرض التفكير الداخلي.
-
-            سياق المستند:
-            $context
-
-            سؤال المستخدم:
-            $input
-            """.trimIndent()
+            NabdSystemPrompt.documentPrompt(
+                userInput = input,
+                contextChunks = context,
+                answerLengthInstruction = currentDocumentAnswerLengthInstruction()
+            )
         } else {
-            """
-            أنت "نبض"، مساعد ذكاء اصطناعي محلي بإعداد وتطوير عمار محمد التميمي.
-            أجب بالعربية فقط.
-            أجب مباشرة على سؤال المستخدم.
-            لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
-            اجعل الإجابة مختصرة ومنظمة، ولا تطِل إلا إذا طلب المستخدم التفصيل.
-            لا تعرض التفكير الداخلي.
-
-            سؤال المستخدم:
-            $input
-            """.trimIndent()
+            NabdSystemPrompt.normalChatPrompt(input)
         }
 
         inputView.setText("")
@@ -614,9 +603,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateAssistantMessage(text: String, forceScroll: Boolean = false) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
-        val cleanedText = cleanForDisplay(text)
+        val cleanedText = cleanForDisplay(text, preserveMarkdown = true)
         chatMessages[activeAssistantMessageIndex].text = cleanedText
-        chatAdapter.updateLastAssistantMessage(cleanedText)
+        chatAdapter.updateLastAssistantMessage(cleanedText, renderMarkdown = forceScroll)
         if (forceScroll) {
             scrollChatToBottom()
         }
@@ -630,11 +619,12 @@ class MainActivity : AppCompatActivity() {
     private fun normalizeMessageText(role: Role, text: String): String {
         return when (role) {
             Role.USER -> text.trim()
-            Role.ASSISTANT, Role.SYSTEM -> cleanForDisplay(text)
+            Role.ASSISTANT -> cleanForDisplay(text, preserveMarkdown = true)
+            Role.SYSTEM -> cleanForDisplay(text)
         }
     }
 
-    private fun cleanForDisplay(text: String): String {
+    private fun cleanForDisplay(text: String, preserveMarkdown: Boolean = false): String {
         if (text.isBlank()) return text.trim()
 
         val withoutThinking = text
@@ -642,19 +632,23 @@ class MainActivity : AppCompatActivity() {
             .replace("<think>", "")
             .replace("</think>", "")
             .replace(Regex("<\\|[^>]+\\|>"), "")
-            .replace("**", "")
-            .replace("__", "")
-            .replace("`", "")
 
         val normalizedLines = withoutThinking
             .lines()
             .map { line ->
-                line
-                    .replace(Regex("^\\s*#{1,4}\\s*"), "")
-                    .replace(Regex("^\\s*[\\*-]\\s+"), "• ")
-                    .replace(Regex("^\\s*•\\s+"), "• ")
-                    .replace(Regex("[ \\t]+"), " ")
-                    .trimEnd()
+                if (preserveMarkdown) {
+                    line.trimEnd()
+                } else {
+                    line
+                        .replace("**", "")
+                        .replace("__", "")
+                        .replace("`", "")
+                        .replace(Regex("^\\s*#{1,4}\\s*"), "")
+                        .replace(Regex("^\\s*[\\*-]\\s+"), "• ")
+                        .replace(Regex("^\\s*•\\s+"), "• ")
+                        .replace(Regex("[ \\t]+"), " ")
+                        .trimEnd()
+                }
             }
             .joinToString("\n")
 
@@ -687,6 +681,7 @@ class MainActivity : AppCompatActivity() {
         isGenerating = true
         updateButtons()
         setStatusInfo(status)
+        chatAdapter.markLastAssistantStreaming()
 
         scope.launch {
             try {
@@ -701,7 +696,7 @@ class MainActivity : AppCompatActivity() {
                             val snapshot = output.toString()
                             lastRenderedRawLength = output.length
                             withContext(Dispatchers.Main) {
-                                val cleanedSnapshot = cleanForDisplay(snapshot)
+                                val cleanedSnapshot = cleanForDisplay(snapshot, preserveMarkdown = true)
                                 assistant.text = cleanedSnapshot
                                 updateAssistantMessage(cleanedSnapshot)
                             }
@@ -709,7 +704,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                val finalText = cleanForDisplay(output.toString()).ifBlank { "(فارغ)" }
+                val finalText = cleanForDisplay(
+                    output.toString(),
+                    preserveMarkdown = true
+                ).ifBlank { "(فارغ)" }
                 assistant.text = finalText
                 lastAssistantResponse = finalText
                 updateAssistantMessage(finalText, forceScroll = true)
@@ -1368,16 +1366,9 @@ class MainActivity : AppCompatActivity() {
                     val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
                     addChatMessage(assistant)
                     startAssistantGeneration(
-                        """
-                        أنت "نبض"، مساعد ذكاء اصطناعي محلي.
-                        حلل النص المستخرج من الصورة.
-                        أجب بالعربية فقط.
-                        لا تستخدم Markdown. لا تستخدم رموز ** أو ###. اكتب بعناوين نصية عادية وقوائم رقمية بسيطة عند الحاجة.
-                        اجعل الإجابة واضحة ومباشرة.
-
-                        النص المستخرج:
-                        ${extractedText.safeTruncate(PROMPT_TEXT_LIMIT)}
-                        """.trimIndent(),
+                        NabdSystemPrompt.imageAnalysisPrompt(
+                            extractedText.safeTruncate(PROMPT_TEXT_LIMIT)
+                        ),
                         assistant,
                         "جاري التحليل..."
                     )
