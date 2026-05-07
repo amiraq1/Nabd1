@@ -909,11 +909,16 @@ class MainActivity : AppCompatActivity() {
         scrollChatToBottom()
     }
 
-    private fun updateAssistantMessage(text: String, forceScroll: Boolean = false) {
+    private fun updateAssistantMessage(
+        text: String,
+        forceScroll: Boolean = false,
+        preserveMarkdown: Boolean = true,
+        renderMarkdown: Boolean = true
+    ) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
-        val cleanedText = cleanForDisplay(text, preserveMarkdown = true)
+        val cleanedText = cleanForDisplay(text, preserveMarkdown = preserveMarkdown)
         chatMessages[activeAssistantMessageIndex].text = cleanedText
-        chatAdapter.updateLastAssistantMessage(cleanedText, renderMarkdown = forceScroll)
+        chatAdapter.updateLastAssistantMessage(cleanedText, renderMarkdown = renderMarkdown)
         if (forceScroll) {
             scrollChatToBottom()
         }
@@ -950,10 +955,12 @@ class MainActivity : AppCompatActivity() {
                     line
                         .replace("**", "")
                         .replace("__", "")
+                        .replace("*", "")
                         .replace("`", "")
                         .replace(Regex("^\\s*#{1,4}\\s*"), "")
                         .replace(Regex("^\\s*[\\*-]\\s+"), "• ")
                         .replace(Regex("^\\s*•\\s+"), "• ")
+                        .replace(Regex("^\\s*\\d+\\.\\s+"), "• ")
                         .replace(Regex("[ \\t]+"), " ")
                         .trimEnd()
                 }
@@ -978,7 +985,9 @@ class MainActivity : AppCompatActivity() {
         assistant: ChatMessage,
         status: String,
         autoTitle: Boolean = false,
-        firstUserMessage: String? = null
+        firstUserMessage: String? = null,
+        preserveMarkdownOutput: Boolean = true,
+        renderMarkdownOutput: Boolean = true
     ) {
         val currentConversation = conversation
         if (currentConversation == null) {
@@ -1014,9 +1023,16 @@ class MainActivity : AppCompatActivity() {
                             val snapshot = output.toString()
                             lastRenderedRawLength = output.length
                             withContext(Dispatchers.Main) {
-                                val cleanedSnapshot = cleanForDisplay(snapshot, preserveMarkdown = true)
+                                val cleanedSnapshot = cleanForDisplay(
+                                    snapshot,
+                                    preserveMarkdown = preserveMarkdownOutput
+                                )
                                 assistant.text = cleanedSnapshot
-                                updateAssistantMessage(cleanedSnapshot)
+                                updateAssistantMessage(
+                                    text = cleanedSnapshot,
+                                    preserveMarkdown = preserveMarkdownOutput,
+                                    renderMarkdown = false
+                                )
                             }
                         }
                     }
@@ -1024,7 +1040,7 @@ class MainActivity : AppCompatActivity() {
 
                 val finalText = cleanForDisplay(
                     output.toString(),
-                    preserveMarkdown = true
+                    preserveMarkdown = preserveMarkdownOutput
                 ).ifBlank { "(فارغ)" }
                 assistant.text = finalText
                 lastAssistantResponse = finalText
@@ -1032,7 +1048,12 @@ class MainActivity : AppCompatActivity() {
                 val generationFinishedAt = SystemClock.elapsedRealtime()
                 lastGenerationFinishedAtElapsedMs = generationFinishedAt
                 lastGenerationDurationMs = generationFinishedAt - generationStartedAt
-                updateAssistantMessage(finalText, forceScroll = true)
+                updateAssistantMessage(
+                    text = finalText,
+                    forceScroll = true,
+                    preserveMarkdown = preserveMarkdownOutput,
+                    renderMarkdown = renderMarkdownOutput
+                )
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage,
