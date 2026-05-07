@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.view.View
@@ -119,6 +120,11 @@ class MainActivity : AppCompatActivity() {
     private var lastAssistantResponse: String = ""
     private var activeAssistantMessageIndex: Int = -1
     private var saveSessionJob: Job? = null
+    private var lastGenerationStartedAtElapsedMs: Long? = null
+    private var lastGenerationFinishedAtElapsedMs: Long? = null
+    private var lastResponseCharCount: Int = 0
+    private var lastFirstTokenLatencyMs: Long? = null
+    private var lastGenerationDurationMs: Long? = null
 
     @Volatile
     private var engine: Engine? = null
@@ -868,6 +874,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         isGenerating = true
+        val generationStartedAt = SystemClock.elapsedRealtime()
+        lastGenerationStartedAtElapsedMs = generationStartedAt
+        lastGenerationFinishedAtElapsedMs = null
+        lastFirstTokenLatencyMs = null
+        lastGenerationDurationMs = null
         updateButtons()
         setStatusInfo(status)
         chatAdapter.markLastAssistantStreaming()
@@ -876,8 +887,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 val output = StringBuilder()
                 var lastRenderedRawLength = 0
+                var firstChunkCaptured = false
                 withContext(Dispatchers.IO) {
                     currentConversation.sendMessageAsync(prompt).collect { chunk ->
+                        if (!firstChunkCaptured) {
+                            firstChunkCaptured = true
+                            lastFirstTokenLatencyMs = SystemClock.elapsedRealtime() - generationStartedAt
+                        }
                         output.append(chunk.toString())
                         val shouldRefresh =
                             output.length <= 256 || output.length - lastRenderedRawLength >= STREAM_UPDATE_MIN_CHARS
@@ -899,6 +915,10 @@ class MainActivity : AppCompatActivity() {
                 ).ifBlank { "(فارغ)" }
                 assistant.text = finalText
                 lastAssistantResponse = finalText
+                lastResponseCharCount = finalText.length
+                val generationFinishedAt = SystemClock.elapsedRealtime()
+                lastGenerationFinishedAtElapsedMs = generationFinishedAt
+                lastGenerationDurationMs = generationFinishedAt - generationStartedAt
                 updateAssistantMessage(finalText, forceScroll = true)
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
@@ -909,6 +929,9 @@ class MainActivity : AppCompatActivity() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: OutOfMemoryError) {
+                val generationFinishedAt = SystemClock.elapsedRealtime()
+                lastGenerationFinishedAtElapsedMs = generationFinishedAt
+                lastGenerationDurationMs = generationFinishedAt - generationStartedAt
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage,
@@ -916,6 +939,9 @@ class MainActivity : AppCompatActivity() {
                 )
                 setStatusError("حدث خطأ أثناء توليد الرد.")
             } catch (_: Exception) {
+                val generationFinishedAt = SystemClock.elapsedRealtime()
+                lastGenerationFinishedAtElapsedMs = generationFinishedAt
+                lastGenerationDurationMs = generationFinishedAt - generationStartedAt
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage,
@@ -923,6 +949,11 @@ class MainActivity : AppCompatActivity() {
                 )
                 setStatusError("حدث خطأ أثناء توليد الرد.")
             } finally {
+                if (lastGenerationFinishedAtElapsedMs == null) {
+                    val generationFinishedAt = SystemClock.elapsedRealtime()
+                    lastGenerationFinishedAtElapsedMs = generationFinishedAt
+                    lastGenerationDurationMs = generationFinishedAt - generationStartedAt
+                }
                 isGenerating = false
                 updateButtons()
             }
@@ -1305,6 +1336,123 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showLiteRtDiagnosticsDialog() {
+        val diagnostics = buildLiteRtDiagnosticsData()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("تشخيص نموذج الذكاء")
+            .setView(buildLiteRtDiagnosticsView(diagnostics))
+            .setPositiveButton("إغلاق", null)
+            .setNeutralButton("نسخ التشخيص") { _, _ ->
+                copyToClipboard("LiteRT-LM Diagnostics", buildLiteRtDiagnosticsText(diagnostics))
+                Toast.makeText(this, "تم نسخ التشخيص", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun buildLiteRtDiagnosticsData(): LiteRtDiagnosticsData {
+        val modelFile = modelManager.getModelFile(selectedModel.id)
+        val modelSizeBytes = modelManager.modelSizeBytes(selectedModel.id)
+        val engineReady = engine != null && conversation != null && loadedModelId == selectedModel.id
+        val backendLabel = "CPU"
+
+        return LiteRtDiagnosticsData(
+            currentModelLabel = when (selectedModel.id) {
+                MODEL_ID_E2B -> "Gemma E2B"
+                MODEL_ID_E4B -> "Gemma E4B"
+                else -> selectedModel.displayName
+            },
+            modelStatusLabel = currentModelStatusLabel(),
+            importedModelSizeLabel = if (modelSizeBytes > 0L) formatStorageSize(modelSizeBytes) else "غير متاح",
+            modelFileLabel = if (modelFile != null && modelFile.exists()) {
+                "files/models/${selectedModel.id}/${modelFile.name}"
+            } else {
+                selectedModel.fileName
+            },
+            engineStatusLabel = if (engineReady) "جاهز" else "غير جاهز",
+            lastResponseLatencyLabel = lastFirstTokenLatencyMs?.let { "${it}ms" } ?: "غير متاح بعد",
+            lastGenerationDurationLabel = lastGenerationDurationMs?.let { "${it}ms" } ?: "غير متاح بعد",
+            lastResponseCharCountLabel = if (lastResponseCharCount > 0) {
+                "$lastResponseCharCount"
+            } else {
+                "غير متاح بعد"
+            },
+            backendLabel = backendLabel
+        )
+    }
+
+    private fun buildLiteRtDiagnosticsView(data: LiteRtDiagnosticsData): View {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val bottomSpacing = (14 * density).toInt()
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding / 2, outerPadding, outerPadding / 2)
+        }
+
+        appendDiagnosticsField(content, "النموذج الحالي", data.currentModelLabel, Color.WHITE, bottomSpacing)
+        appendDiagnosticsField(
+            content,
+            "حالة النموذج",
+            data.modelStatusLabel,
+            when (data.modelStatusLabel) {
+                "مشغّل" -> Color.parseColor("#10B981")
+                "جاري التشغيل" -> Color.parseColor("#FF7000")
+                else -> Color.parseColor("#EF4444")
+            },
+            bottomSpacing
+        )
+        appendDiagnosticsField(content, "حجم النموذج المستورد", data.importedModelSizeLabel, Color.WHITE, bottomSpacing)
+        appendDiagnosticsField(content, "ملف النموذج", data.modelFileLabel, Color.parseColor("#A0A0A0"), bottomSpacing)
+        appendDiagnosticsField(
+            content,
+            "Engine",
+            data.engineStatusLabel,
+            if (data.engineStatusLabel == "جاهز") Color.parseColor("#10B981") else Color.parseColor("#EF4444"),
+            bottomSpacing
+        )
+        appendDiagnosticsField(content, "آخر زمن استجابة", data.lastResponseLatencyLabel, Color.WHITE, bottomSpacing)
+        appendDiagnosticsField(content, "آخر مدة توليد", data.lastGenerationDurationLabel, Color.WHITE, bottomSpacing)
+        appendDiagnosticsField(content, "آخر عدد أحرف الرد", data.lastResponseCharCountLabel, Color.WHITE, bottomSpacing)
+        appendDiagnosticsField(content, "Backend", data.backendLabel, Color.parseColor("#FF7000"), bottomSpacing)
+        appendDiagnosticsField(
+            content,
+            "ملاحظة",
+            "يعتمد الأداء على الجهاز والذاكرة وحجم النموذج.",
+            Color.parseColor("#A0A0A0"),
+            0
+        )
+
+        return ScrollView(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            isFillViewport = true
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private fun buildLiteRtDiagnosticsText(data: LiteRtDiagnosticsData): String {
+        return buildString {
+            appendLine("تشخيص نموذج الذكاء")
+            appendLine("النموذج الحالي: ${data.currentModelLabel}")
+            appendLine("حالة النموذج: ${data.modelStatusLabel}")
+            appendLine("حجم النموذج المستورد: ${data.importedModelSizeLabel}")
+            appendLine("ملف النموذج: ${data.modelFileLabel}")
+            appendLine("Engine: ${data.engineStatusLabel}")
+            appendLine("آخر زمن استجابة: ${data.lastResponseLatencyLabel}")
+            appendLine("آخر مدة توليد: ${data.lastGenerationDurationLabel}")
+            appendLine("آخر عدد أحرف الرد: ${data.lastResponseCharCountLabel}")
+            appendLine("Backend: ${data.backendLabel}")
+            append("ملاحظة: يعتمد الأداء على الجهاز والذاكرة وحجم النموذج.")
+        }
+    }
+
     private fun showRagDiagnosticsDialog() {
         scope.launch {
             val selectedDocument = getSelectedDocument()
@@ -1486,6 +1634,7 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_IMPORT_MODEL -> openFilePicker()
             SettingsActivity.ACTION_MANAGE_MODEL_E2B -> showMainModelManagementDialog(modelById(MODEL_ID_E2B))
             SettingsActivity.ACTION_MANAGE_MODEL_E4B -> showMainModelManagementDialog(modelById(MODEL_ID_E4B))
+            SettingsActivity.ACTION_LITERT_DIAGNOSTICS -> showLiteRtDiagnosticsDialog()
             SettingsActivity.ACTION_IMPORT_EMBEDDING_MODEL -> openEmbeddingModelPicker()
             SettingsActivity.ACTION_DELETE_EMBEDDING_MODEL -> confirmDeleteEmbeddingModel()
             SettingsActivity.ACTION_DELETE_EMBEDDING_INDEXES -> confirmDeleteEmbeddingIndexes()
@@ -2253,6 +2402,18 @@ private data class RagDiagnosticsData(
     val indexInfo: EmbeddingStore.EmbeddingIndexInfo?,
     val lastState: String,
     val canBuildIndex: Boolean
+)
+
+private data class LiteRtDiagnosticsData(
+    val currentModelLabel: String,
+    val modelStatusLabel: String,
+    val importedModelSizeLabel: String,
+    val modelFileLabel: String,
+    val engineStatusLabel: String,
+    val lastResponseLatencyLabel: String,
+    val lastGenerationDurationLabel: String,
+    val lastResponseCharCountLabel: String,
+    val backendLabel: String
 )
 
 private data class DocumentRetrievalOutcome(

@@ -110,6 +110,14 @@ class SettingsActivity : AppCompatActivity() {
         ) {
             finishWithAction(ACTION_MANAGE_MODEL_E4B)
         }
+        addOptionRow(
+            sectionModel,
+            "؟",
+            "تشخيص نموذج الذكاء",
+            "حالة النموذج والأداء"
+        ) {
+            finishWithAction(ACTION_LITERT_DIAGNOSTICS)
+        }
 
         addOptionRow(
             sectionDocuments,
@@ -352,6 +360,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_IMPORT_MODEL = "import_model"
         const val ACTION_MANAGE_MODEL_E2B = "manage_model_e2b"
         const val ACTION_MANAGE_MODEL_E4B = "manage_model_e4b"
+        const val ACTION_LITERT_DIAGNOSTICS = "litert_diagnostics"
         const val ACTION_IMPORT_EMBEDDING_MODEL = "import_embedding_model"
         const val ACTION_DELETE_EMBEDDING_MODEL = "delete_embedding_model"
         const val ACTION_DELETE_EMBEDDING_INDEXES = "delete_embedding_indexes"
