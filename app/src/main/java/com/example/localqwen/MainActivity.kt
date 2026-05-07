@@ -1,8 +1,12 @@
 package com.example.localqwen
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.os.Build
 import android.graphics.Color
@@ -13,6 +17,7 @@ import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -20,8 +25,11 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.work.OneTimeWorkRequestBuilder
@@ -115,6 +123,17 @@ class MainActivity : AppCompatActivity() {
     private val workManager by lazy { WorkManager.getInstance(applicationContext) }
     private val modelLock = Any()
     private val handledPdfWorkIds = mutableSetOf<UUID>()
+    private var backgroundTasksDialog: AlertDialog? = null
+    private var localModelManagerDialog: AlertDialog? = null
+    private var localModelManagerContentContainer: LinearLayout? = null
+    private var localModelManagerQuickTestJob: Job? = null
+    private var localModelManagerLastQuickTestMessage = "لم يتم تشغيل أي اختبار بعد."
+    private var backgroundTasksPdfContainer: LinearLayout? = null
+    private var backgroundTasksSemanticContainer: LinearLayout? = null
+    private var backgroundTasksEmptyStateView: TextView? = null
+    private var backgroundTasksLatestPdfWorkInfos: List<WorkInfo> = emptyList()
+    private var backgroundTasksPdfWorkLiveData: LiveData<List<WorkInfo>>? = null
+    private var backgroundTasksPdfObserver: Observer<List<WorkInfo>>? = null
 
     private var selectedModel: SupportedModel = supportedModels.first()
     private var loadedModelId: String? = null
@@ -137,6 +156,15 @@ class MainActivity : AppCompatActivity() {
     private var isGenerating = false
     private var isProcessingFile = false
     private var isPreparingDocumentContext = false
+    private var semanticIndexingStatus = SEMANTIC_INDEX_STATUS_IDLE
+    private var semanticIndexingDocumentTitle: String? = null
+    private var semanticIndexingStartedAt: Long? = null
+    private var semanticIndexingLastMessage = "لا توجد عمليات فهرسة حالية."
+    private var localEngineLastErrorMessage: String? = null
+    private var sendLoadingAnimator: ObjectAnimator? = null
+    private var typingPulseAnimator: ObjectAnimator? = null
+    private var pendingAttachDialogRunnable: Runnable? = null
+    private val microInteractionInterpolator = AccelerateDecelerateInterpolator()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -179,7 +207,20 @@ class MainActivity : AppCompatActivity() {
         renderChatHistory()
 
         optionsButton.setOnClickListener { showOptionsBottomSheet() }
-        attachButton.setOnClickListener { showAttachmentTypeDialog() }
+        attachButton.setOnClickListener {
+            if (!attachButton.isEnabled) return@setOnClickListener
+            animateButtonPress(attachButton)
+            pendingAttachDialogRunnable?.let(attachButton::removeCallbacks)
+            pendingAttachDialogRunnable = Runnable {
+                pendingAttachDialogRunnable = null
+                if (!isFinishing && !isDestroyed) {
+                    showAttachmentTypeDialog()
+                }
+            }
+            pendingAttachDialogRunnable?.let {
+                attachButton.postDelayed(it, ATTACH_BUTTON_PRESS_DURATION_MS)
+            }
+        }
         sendButton.setOnClickListener { sendPrompt() }
 
         inputView.addTextChangedListener(SimpleTextWatcher { updateButtons() })
@@ -187,6 +228,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        backgroundTasksDialog?.dismiss()
+        clearBackgroundTasksDialogRefs()
+        detachBackgroundTasksObserver()
+        localModelManagerDialog?.dismiss()
+        clearLocalModelManagerDialogRefs()
+        localModelManagerQuickTestJob?.cancel()
+        localModelManagerQuickTestJob = null
+        pendingAttachDialogRunnable?.let(attachButton::removeCallbacks)
+        pendingAttachDialogRunnable = null
+        attachButton.animate().cancel()
+        attachButton.scaleX = 1f
+        attachButton.scaleY = 1f
+        stopSendLoadingAnimation()
+        stopTypingPulse()
         saveSessionJob?.cancel()
         embeddingEngine.close()
         closeModelResources()
@@ -365,12 +420,93 @@ class MainActivity : AppCompatActivity() {
         inputView.isEnabled = !blocked
         sendButton.isEnabled = hasInput && !blocked
 
-        sendButton.alpha = if (sendButton.isEnabled) 1.0f else 0.45f
+        sendButton.alpha = if (isGenerating || sendButton.isEnabled) 1.0f else 0.45f
         attachButton.alpha = if (attachButton.isEnabled) 1.0f else 0.5f
-        sendButton.text = if (isGenerating) "…" else "↑"
         attachButton.text = "+"
-        typingIndicatorView.visibility = if (isGenerating) View.VISIBLE else View.GONE
-        sendProgressBar.visibility = if (blocked) View.VISIBLE else View.GONE
+        if (isGenerating) {
+            startSendLoadingAnimation()
+            startTypingPulse()
+        } else {
+            stopSendLoadingAnimation()
+            stopTypingPulse()
+        }
+        sendProgressBar.visibility = if (blocked && !isGenerating) View.VISIBLE else View.GONE
+    }
+
+    private fun animateButtonPress(view: View) {
+        view.animate().cancel()
+        view.scaleX = 1f
+        view.scaleY = 1f
+        view.animate()
+            .scaleX(0.92f)
+            .scaleY(0.92f)
+            .setDuration(ATTACH_BUTTON_PRESS_DURATION_MS / 2)
+            .setInterpolator(microInteractionInterpolator)
+            .withEndAction {
+                view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(ATTACH_BUTTON_PRESS_DURATION_MS / 2)
+                    .setInterpolator(microInteractionInterpolator)
+                    .start()
+            }
+            .start()
+    }
+
+    private fun startSendLoadingAnimation() {
+        sendButton.text = "…"
+        if (sendLoadingAnimator?.isRunning == true) return
+
+        sendLoadingAnimator?.cancel()
+        sendButton.scaleX = 1f
+        sendButton.scaleY = 1f
+        sendLoadingAnimator = ObjectAnimator.ofPropertyValuesHolder(
+            sendButton,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 0.96f, 1.04f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.96f, 1.04f)
+        ).apply {
+            duration = SEND_BUTTON_PULSE_DURATION_MS
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = microInteractionInterpolator
+            start()
+        }
+    }
+
+    private fun stopSendLoadingAnimation() {
+        sendLoadingAnimator?.cancel()
+        sendLoadingAnimator = null
+        sendButton.scaleX = 1f
+        sendButton.scaleY = 1f
+        sendButton.text = "↑"
+    }
+
+    private fun startTypingPulse() {
+        typingIndicatorView.text = "نبض يكتب..."
+        typingIndicatorView.visibility = View.VISIBLE
+        if (typingPulseAnimator?.isRunning == true) return
+
+        typingPulseAnimator?.cancel()
+        typingIndicatorView.alpha = 1f
+        typingPulseAnimator = ObjectAnimator.ofFloat(
+            typingIndicatorView,
+            View.ALPHA,
+            0.45f,
+            1f
+        ).apply {
+            duration = TYPING_PULSE_DURATION_MS
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = microInteractionInterpolator
+            start()
+        }
+    }
+
+    private fun stopTypingPulse() {
+        typingPulseAnimator?.cancel()
+        typingPulseAnimator = null
+        typingIndicatorView.alpha = 1f
+        typingIndicatorView.visibility = View.GONE
     }
 
     private fun setStatusInfo(message: String) {
@@ -1160,16 +1296,20 @@ class MainActivity : AppCompatActivity() {
                 engine = loaded.first
                 conversation = loaded.second
                 loadedModelId = loaded.third
+                localEngineLastErrorMessage = null
                 setStatusSuccess("تم تشغيل نبض")
-            } catch (_: OutOfMemoryError) {
+            } catch (oom: OutOfMemoryError) {
                 closeModelResources()
+                localEngineLastErrorMessage = oom.message ?: "نفاد الذاكرة أثناء تحميل النموذج."
                 setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
                 closeModelResources()
+                localEngineLastErrorMessage = exception.message ?: "فشل تحميل النموذج."
                 setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
             } finally {
                 isLoadingModel = false
                 updateButtons()
+                renderLocalModelManagerDialog()
             }
         }
     }
@@ -1587,6 +1727,361 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showLocalModelManagerDialog() {
+        localModelManagerDialog?.dismiss()
+        localModelManagerQuickTestJob?.cancel()
+        localModelManagerQuickTestJob = null
+
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding / 2, outerPadding, outerPadding / 2)
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("إدارة النماذج المحلية")
+            .setView(
+                ScrollView(this).apply {
+                    layoutDirection = View.LAYOUT_DIRECTION_RTL
+                    isFillViewport = true
+                    addView(
+                        content,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                }
+            )
+            .setPositiveButton("إغلاق", null)
+            .setNeutralButton("تحديث", null)
+            .create()
+
+        localModelManagerDialog = dialog
+        localModelManagerContentContainer = content
+
+        dialog.setOnShowListener {
+            dialog.getButton(DialogInterface.BUTTON_NEUTRAL)?.setOnClickListener {
+                renderLocalModelManagerDialog()
+            }
+            renderLocalModelManagerDialog()
+        }
+        dialog.setOnDismissListener {
+            if (localModelManagerDialog === dialog) {
+                localModelManagerQuickTestJob?.cancel()
+                localModelManagerQuickTestJob = null
+                clearLocalModelManagerDialogRefs()
+            }
+        }
+        dialog.show()
+        renderLocalModelManagerDialog()
+    }
+
+    private fun clearLocalModelManagerDialogRefs() {
+        localModelManagerDialog = null
+        localModelManagerContentContainer = null
+    }
+
+    private fun renderLocalModelManagerDialog() {
+        val container = localModelManagerContentContainer ?: return
+        container.removeAllViews()
+
+        val density = resources.displayMetrics.density
+        val sectionSpacing = (18 * density).toInt()
+        val itemSpacing = (12 * density).toInt()
+        val accentColor = Color.parseColor("#FF7000")
+        val secondaryColor = Color.parseColor("#A0A0A0")
+
+        val modelStatus = localModelStatusLabel()
+        val modelStatusColor = when (modelStatus) {
+            "جاهز" -> Color.parseColor("#10B981")
+            "خطأ" -> Color.parseColor("#EF4444")
+            else -> secondaryColor
+        }
+
+        container.addView(
+            TextView(this).apply {
+                text = "النموذج الحالي"
+                setTextColor(accentColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "الاسم",
+            value = localModelDisplayName(selectedModel),
+            valueColor = Color.WHITE,
+            bottomMargin = itemSpacing
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "الحالة",
+            value = modelStatus,
+            valueColor = modelStatusColor,
+            bottomMargin = itemSpacing
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "الحجم",
+            value = modelManager.modelSizeBytes(selectedModel.id).takeIf { it > 0L }?.let(::formatStorageSize)
+                ?: "غير معروف",
+            valueColor = Color.WHITE,
+            bottomMargin = itemSpacing
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "مسار التخزين",
+            value = safeModelStoragePath(selectedModel),
+            valueColor = secondaryColor,
+            bottomMargin = sectionSpacing
+        )
+
+        val engineState = localEngineStateLabel()
+        val engineStateColor = when (engineState) {
+            "جاهز" -> Color.parseColor("#10B981")
+            "فشل التحميل" -> Color.parseColor("#EF4444")
+            "يتم التحميل" -> Color.parseColor("#FF7000")
+            else -> secondaryColor
+        }
+
+        container.addView(
+            TextView(this).apply {
+                text = "حالة المحرك المحلي"
+                setTextColor(accentColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "حالة المحرك",
+            value = engineState,
+            valueColor = engineStateColor,
+            bottomMargin = itemSpacing
+        )
+        appendDiagnosticsField(
+            container = container,
+            title = "آخر خطأ",
+            value = localEngineLastErrorMessage?.safeTruncate(200) ?: "-",
+            valueColor = if (localEngineLastErrorMessage.isNullOrBlank()) secondaryColor else Color.parseColor("#EF4444"),
+            bottomMargin = sectionSpacing
+        )
+
+        container.addView(
+            TextView(this).apply {
+                text = "اختبارات سريعة"
+                setTextColor(accentColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+        )
+
+        val canRunInferenceTests = !isLoadingModel && !isGenerating && loadedModelId == selectedModel.id &&
+            engine != null && conversation != null
+        val isQuickTestRunning = localModelManagerQuickTestJob?.isActive == true
+
+        val shortTestButton = Button(this).apply {
+            text = "اختبار توليد قصير"
+            isEnabled = canRunInferenceTests && !isQuickTestRunning
+            alpha = if (isEnabled) 1f else 0.6f
+            setOnClickListener { startLocalModelQuickTest(LocalModelQuickTestType.SHORT_GENERATION) }
+        }
+        container.addView(
+            shortTestButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        val memoryTestButton = Button(this).apply {
+            text = "اختبار الذاكرة"
+            isEnabled = !isQuickTestRunning
+            alpha = if (isEnabled) 1f else 0.6f
+            setOnClickListener { startLocalModelQuickTest(LocalModelQuickTestType.MEMORY) }
+        }
+        container.addView(
+            memoryTestButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        val speedTestButton = Button(this).apply {
+            text = "اختبار السرعة"
+            isEnabled = canRunInferenceTests && !isQuickTestRunning
+            alpha = if (isEnabled) 1f else 0.6f
+            setOnClickListener { startLocalModelQuickTest(LocalModelQuickTestType.SPEED) }
+        }
+        container.addView(
+            speedTestButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() }
+        )
+
+        appendDiagnosticsField(
+            container = container,
+            title = "نتيجة الاختبار",
+            value = localModelManagerLastQuickTestMessage,
+            valueColor = when {
+                localModelManagerLastQuickTestMessage.startsWith("فشل") -> Color.parseColor("#EF4444")
+                localModelManagerLastQuickTestMessage.startsWith("جارٍ") -> Color.parseColor("#FF7000")
+                else -> Color.WHITE
+            },
+            bottomMargin = 0
+        )
+    }
+
+    private fun localModelDisplayName(model: SupportedModel): String {
+        return when (model.id) {
+            MODEL_ID_E2B -> "Gemma E2B"
+            MODEL_ID_E4B -> "Gemma E4B"
+            else -> model.displayName
+        }
+    }
+
+    private fun localModelStatusLabel(): String {
+        if (engine != null && conversation != null && loadedModelId == selectedModel.id) return "جاهز"
+        if (localEngineLastErrorMessage != null && !isLoadingModel) return "خطأ"
+        return "غير محمّل"
+    }
+
+    private fun localEngineStateLabel(): String {
+        return when {
+            isLoadingModel -> "يتم التحميل"
+            engine != null && conversation != null && loadedModelId == selectedModel.id -> "جاهز"
+            !localEngineLastErrorMessage.isNullOrBlank() -> "فشل التحميل"
+            else -> "غير محمّل"
+        }
+    }
+
+    private fun safeModelStoragePath(model: SupportedModel): String {
+        val fileName = modelManager.getModelFile(model.id)?.name ?: model.fileName
+        return "files/models/${model.id}/$fileName"
+    }
+
+    private fun startLocalModelQuickTest(testType: LocalModelQuickTestType) {
+        if (localModelManagerQuickTestJob?.isActive == true) return
+
+        localModelManagerLastQuickTestMessage = "جارٍ تنفيذ ${testType.label}..."
+        renderLocalModelManagerDialog()
+
+        localModelManagerQuickTestJob = scope.launch {
+            val resultMessage = try {
+                when (testType) {
+                    LocalModelQuickTestType.SHORT_GENERATION -> runLocalModelShortGenerationTest()
+                    LocalModelQuickTestType.MEMORY -> runLocalModelMemoryTest()
+                    LocalModelQuickTestType.SPEED -> runLocalModelSpeedTest()
+                }
+            } catch (cancelled: CancellationException) {
+                "تم إلغاء ${testType.label}."
+            } catch (oom: OutOfMemoryError) {
+                "فشل ${testType.label}: ${oom.message ?: "نفاد الذاكرة"}"
+            } catch (exception: Exception) {
+                "فشل ${testType.label}: ${exception.message ?: "خطأ غير متوقع"}"
+            }
+
+            localModelManagerLastQuickTestMessage = resultMessage
+            localModelManagerQuickTestJob = null
+            renderLocalModelManagerDialog()
+        }
+        renderLocalModelManagerDialog()
+    }
+
+    private suspend fun runLocalModelShortGenerationTest(): String {
+        val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SHORT_TEST_PROMPT)
+        if (!probe.success) return "فشل اختبار التوليد القصير: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
+        return buildString {
+            append("نجح اختبار التوليد القصير")
+            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
+            probe.totalDurationMs?.let { append(" • المدة: ${it}ms") }
+            probe.responseCharCount?.let { append(" • الأحرف: $it") }
+        }
+    }
+
+    private suspend fun runLocalModelSpeedTest(): String {
+        val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SPEED_TEST_PROMPT)
+        if (!probe.success) return "فشل اختبار السرعة: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
+        val duration = probe.totalDurationMs ?: 0L
+        val chars = probe.responseCharCount ?: 0
+        val charsPerSecond = if (duration > 0L) (chars * 1000f) / duration else 0f
+        return buildString {
+            append("نجح اختبار السرعة")
+            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
+            append(" • المدة: ${duration}ms")
+            append(" • معدل الأحرف/ث: ${String.format(Locale.US, "%.1f", charsPerSecond)}")
+        }
+    }
+
+    private fun runLocalModelMemoryTest(): String {
+        val runtime = Runtime.getRuntime()
+        val used = runtime.totalMemory() - runtime.freeMemory()
+        val max = runtime.maxMemory()
+        val freeInsideHeap = runtime.freeMemory()
+        return buildString {
+            append("نجح اختبار الذاكرة")
+            append(" • مستخدم: ${formatStorageSize(used)}")
+            append(" • متاح داخل heap: ${formatStorageSize(freeInsideHeap)}")
+            append(" • حد heap: ${formatStorageSize(max)}")
+        }
+    }
+
+    private suspend fun runLocalModelInferenceProbe(prompt: String): LocalModelProbeResult {
+        if (isLoadingModel) {
+            return LocalModelProbeResult(success = false, errorMessage = "المحرك المحلي قيد التحميل.")
+        }
+        if (isGenerating) {
+            return LocalModelProbeResult(success = false, errorMessage = "يوجد توليد جارٍ. أعد الاختبار بعد الانتهاء.")
+        }
+
+        val activeEngine = synchronized(modelLock) { engine }
+        if (activeEngine == null || conversation == null || loadedModelId != selectedModel.id) {
+            return LocalModelProbeResult(success = false, errorMessage = "النموذج الحالي غير جاهز للتشغيل.")
+        }
+
+        return withContext(Dispatchers.IO) {
+            val startedAt = SystemClock.elapsedRealtime()
+            var firstTokenLatencyMs: Long? = null
+            val output = StringBuilder()
+            val probeConversation = runCatching { activeEngine.createConversation() }.getOrNull()
+                ?: return@withContext LocalModelProbeResult(success = false, errorMessage = "تعذر فتح جلسة اختبار.")
+
+            try {
+                probeConversation.sendMessageAsync(prompt.safeTruncate(PROMPT_TEXT_LIMIT)).collect { chunk ->
+                    if (firstTokenLatencyMs == null) {
+                        firstTokenLatencyMs = SystemClock.elapsedRealtime() - startedAt
+                    }
+                    if (output.length < LOCAL_MODEL_TEST_MAX_OUTPUT_CHARS) {
+                        output.append(chunk.toString())
+                    }
+                }
+                val finishedAt = SystemClock.elapsedRealtime()
+                LocalModelProbeResult(
+                    success = true,
+                    firstTokenLatencyMs = firstTokenLatencyMs,
+                    totalDurationMs = finishedAt - startedAt,
+                    responseCharCount = cleanForDisplay(output.toString(), preserveMarkdown = false).length
+                )
+            } catch (oom: OutOfMemoryError) {
+                LocalModelProbeResult(success = false, errorMessage = oom.message ?: "نفاد الذاكرة.")
+            } catch (exception: Exception) {
+                LocalModelProbeResult(success = false, errorMessage = exception.message ?: "فشل الاختبار.")
+            } finally {
+                runCatching { probeConversation.close() }
+            }
+        }
+    }
+
     private fun showRagDiagnosticsDialog() {
         scope.launch {
             val selectedDocument = getSelectedDocument()
@@ -1718,6 +2213,311 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showBackgroundTasksDialog() {
+        backgroundTasksDialog?.dismiss()
+        detachBackgroundTasksObserver()
+
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val sectionBottomSpacing = (16 * density).toInt()
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding / 2, outerPadding, outerPadding / 2)
+        }
+
+        val pdfSectionTitle = TextView(this).apply {
+            text = "معالجة ملفات PDF"
+            setTextColor(Color.parseColor("#FF7000"))
+            textSize = 15f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+        val pdfContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+                bottomMargin = sectionBottomSpacing
+            }
+        }
+
+        val semanticSectionTitle = TextView(this).apply {
+            text = "الفهرسة الدلالية"
+            setTextColor(Color.parseColor("#FF7000"))
+            textSize = 15f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+        val semanticContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+            }
+        }
+
+        val emptyStateView = TextView(this).apply {
+            text = "لا توجد مهام خلفية حاليًا."
+            setTextColor(Color.parseColor("#A0A0A0"))
+            textSize = 14f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            visibility = View.GONE
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+
+        content.addView(pdfSectionTitle)
+        content.addView(pdfContainer)
+        content.addView(semanticSectionTitle)
+        content.addView(semanticContainer)
+        content.addView(emptyStateView)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("مهام الخلفية")
+            .setView(
+                ScrollView(this).apply {
+                    layoutDirection = View.LAYOUT_DIRECTION_RTL
+                    isFillViewport = true
+                    addView(
+                        content,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                }
+            )
+            .setPositiveButton("إغلاق", null)
+            .setNeutralButton("تحديث", null)
+            .setNegativeButton("إلغاء مهام PDF", null)
+            .create()
+
+        backgroundTasksDialog = dialog
+        backgroundTasksPdfContainer = pdfContainer
+        backgroundTasksSemanticContainer = semanticContainer
+        backgroundTasksEmptyStateView = emptyStateView
+
+        dialog.setOnShowListener {
+            dialog.getButton(DialogInterface.BUTTON_NEUTRAL)?.setOnClickListener {
+                refreshBackgroundTasksPdfList()
+            }
+            dialog.getButton(DialogInterface.BUTTON_NEGATIVE)?.setOnClickListener {
+                workManager.cancelAllWorkByTag(PDF_PROCESSING_TAG)
+                Toast.makeText(this, "تم طلب إلغاء مهام PDF", Toast.LENGTH_SHORT).show()
+                refreshBackgroundTasksPdfList()
+            }
+            renderBackgroundTasksDialog()
+            refreshBackgroundTasksPdfList()
+        }
+        dialog.setOnDismissListener {
+            if (backgroundTasksDialog === dialog) {
+                clearBackgroundTasksDialogRefs()
+                detachBackgroundTasksObserver()
+            }
+        }
+        dialog.show()
+
+        observeBackgroundPdfTasks()
+        renderBackgroundTasksDialog()
+    }
+
+    private fun observeBackgroundPdfTasks() {
+        detachBackgroundTasksObserver()
+        val liveData = workManager.getWorkInfosByTagLiveData(PDF_PROCESSING_TAG)
+        val observer = Observer<List<WorkInfo>> { workInfos ->
+            backgroundTasksLatestPdfWorkInfos = workInfos
+            renderBackgroundTasksDialog()
+        }
+        backgroundTasksPdfWorkLiveData = liveData
+        backgroundTasksPdfObserver = observer
+        liveData.observe(this, observer)
+    }
+
+    private fun detachBackgroundTasksObserver() {
+        val liveData = backgroundTasksPdfWorkLiveData
+        val observer = backgroundTasksPdfObserver
+        if (liveData != null && observer != null) {
+            liveData.removeObserver(observer)
+        }
+        backgroundTasksPdfWorkLiveData = null
+        backgroundTasksPdfObserver = null
+    }
+
+    private fun clearBackgroundTasksDialogRefs() {
+        backgroundTasksDialog = null
+        backgroundTasksPdfContainer = null
+        backgroundTasksSemanticContainer = null
+        backgroundTasksEmptyStateView = null
+    }
+
+    private fun refreshBackgroundTasksPdfList() {
+        scope.launch {
+            val workInfos = runCatching {
+                withContext(Dispatchers.IO) {
+                    workManager.getWorkInfosByTag(PDF_PROCESSING_TAG).get()
+                }
+            }.getOrDefault(emptyList())
+            backgroundTasksLatestPdfWorkInfos = workInfos
+            renderBackgroundTasksDialog()
+        }
+    }
+
+    private fun renderBackgroundTasksDialog() {
+        val pdfContainer = backgroundTasksPdfContainer ?: return
+        val semanticContainer = backgroundTasksSemanticContainer ?: return
+        val emptyStateView = backgroundTasksEmptyStateView ?: return
+
+        renderPdfTasksSection(pdfContainer, backgroundTasksLatestPdfWorkInfos)
+        renderSemanticIndexingSection(semanticContainer)
+
+        val hasRunningPdf = hasActivePdfTasks(backgroundTasksLatestPdfWorkInfos)
+        backgroundTasksDialog?.getButton(DialogInterface.BUTTON_NEGATIVE)?.visibility =
+            if (hasRunningPdf) View.VISIBLE else View.GONE
+
+        val showEmptyState = backgroundTasksLatestPdfWorkInfos.isEmpty() &&
+            semanticIndexingStatus == SEMANTIC_INDEX_STATUS_IDLE
+        emptyStateView.visibility = if (showEmptyState) View.VISIBLE else View.GONE
+    }
+
+    private fun renderPdfTasksSection(container: LinearLayout, workInfos: List<WorkInfo>) {
+        container.removeAllViews()
+        if (workInfos.isEmpty()) {
+            appendDiagnosticsField(
+                container = container,
+                title = "معالجة ملفات PDF",
+                value = "لا توجد مهام PDF حاليًا.",
+                valueColor = Color.parseColor("#A0A0A0"),
+                bottomMargin = 0
+            )
+            return
+        }
+
+        val sortedInfos = workInfos.sortedWith(
+            compareBy<WorkInfo>({ pdfTaskStatePriority(it.state) }, { it.id.toString() })
+        ).take(BACKGROUND_TASKS_MAX_PDF_ITEMS)
+
+        val density = resources.displayMetrics.density
+        val itemSpacing = (12 * density).toInt()
+        sortedInfos.forEachIndexed { index, workInfo ->
+            val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
+                ?: workInfo.progress.getString(PdfProcessingWorker.KEY_PDF_TITLE)
+                ?: DEFAULT_PDF_TITLE
+            val value = buildPdfTaskDetails(workInfo)
+            appendDiagnosticsField(
+                container = container,
+                title = "${index + 1}. $title",
+                value = value,
+                valueColor = pdfWorkStateColor(workInfo.state),
+                bottomMargin = itemSpacing
+            )
+        }
+    }
+
+    private fun buildPdfTaskDetails(workInfo: WorkInfo): String {
+        val page = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_PAGE, 0)
+        val total = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_TOTAL, 0)
+        val extractedChars = workInfo.outputData.getInt(PdfProcessingWorker.KEY_EXTRACTED_CHARS, 0)
+        val errorMessage = workInfo.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE)
+
+        return buildString {
+            appendLine("الحالة: ${pdfWorkStateLabel(workInfo.state)}")
+            if (page > 0 && total > 0) {
+                appendLine("التقدم: الصفحة $page من $total")
+            }
+            if (workInfo.state == WorkInfo.State.SUCCEEDED) {
+                append("الأحرف المستخرجة: $extractedChars")
+            } else if (workInfo.state == WorkInfo.State.FAILED && !errorMessage.isNullOrBlank()) {
+                append("الخطأ: $errorMessage")
+            } else if (workInfo.state == WorkInfo.State.CANCELLED) {
+                append("تم إلغاء المهمة.")
+            }
+        }.trim()
+    }
+
+    private fun renderSemanticIndexingSection(container: LinearLayout) {
+        container.removeAllViews()
+        val statusLabel = semanticStatusLabel(semanticIndexingStatus)
+        val startedAt = semanticIndexingStartedAt?.let(::formatDateTime) ?: "-"
+        val documentTitle = semanticIndexingDocumentTitle ?: "-"
+        val details = buildString {
+            appendLine("الحالة: $statusLabel")
+            appendLine("المستند: $documentTitle")
+            appendLine("وقت البدء: $startedAt")
+            append("آخر رسالة: ${semanticIndexingLastMessage.ifBlank { "-" }}")
+        }
+        appendDiagnosticsField(
+            container = container,
+            title = "الفهرسة الدلالية",
+            value = details,
+            valueColor = semanticStatusColor(semanticIndexingStatus),
+            bottomMargin = 0
+        )
+    }
+
+    private fun hasActivePdfTasks(workInfos: List<WorkInfo>): Boolean {
+        return workInfos.any {
+            it.state == WorkInfo.State.ENQUEUED ||
+                it.state == WorkInfo.State.RUNNING ||
+                it.state == WorkInfo.State.BLOCKED
+        }
+    }
+
+    private fun pdfTaskStatePriority(state: WorkInfo.State): Int {
+        return when (state) {
+            WorkInfo.State.RUNNING -> 0
+            WorkInfo.State.ENQUEUED -> 1
+            WorkInfo.State.BLOCKED -> 2
+            WorkInfo.State.FAILED -> 3
+            WorkInfo.State.CANCELLED -> 4
+            WorkInfo.State.SUCCEEDED -> 5
+        }
+    }
+
+    private fun pdfWorkStateLabel(state: WorkInfo.State): String {
+        return when (state) {
+            WorkInfo.State.RUNNING -> "RUNNING • جاري"
+            WorkInfo.State.SUCCEEDED -> "SUCCEEDED • مكتمل"
+            WorkInfo.State.FAILED -> "FAILED • فشل"
+            WorkInfo.State.CANCELLED -> "CANCELLED • ملغى"
+            WorkInfo.State.ENQUEUED -> "ENQUEUED • بانتظار التنفيذ"
+            WorkInfo.State.BLOCKED -> "BLOCKED • بانتظار التبعيات"
+        }
+    }
+
+    private fun pdfWorkStateColor(state: WorkInfo.State): Int {
+        return when (state) {
+            WorkInfo.State.SUCCEEDED -> Color.parseColor("#10B981")
+            WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> Color.parseColor("#EF4444")
+            else -> Color.parseColor("#FF7000")
+        }
+    }
+
+    private fun semanticStatusLabel(status: String): String {
+        return when (status) {
+            SEMANTIC_INDEX_STATUS_RUNNING -> "جاري"
+            SEMANTIC_INDEX_STATUS_SUCCESS -> "مكتمل"
+            SEMANTIC_INDEX_STATUS_FAILED -> "فشل"
+            else -> "IDLE • لا توجد مهمة"
+        }
+    }
+
+    private fun semanticStatusColor(status: String): Int {
+        return when (status) {
+            SEMANTIC_INDEX_STATUS_RUNNING -> Color.parseColor("#FF7000")
+            SEMANTIC_INDEX_STATUS_SUCCESS -> Color.parseColor("#10B981")
+            SEMANTIC_INDEX_STATUS_FAILED -> Color.parseColor("#EF4444")
+            else -> Color.parseColor("#A0A0A0")
+        }
+    }
+
     private fun appendDiagnosticsField(
         container: LinearLayout,
         title: String,
@@ -1774,6 +2574,8 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_DELETE_EMBEDDING_INDEXES -> confirmDeleteEmbeddingIndexes()
             SettingsActivity.ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX -> confirmBuildSelectedDocumentSemanticIndex()
             SettingsActivity.ACTION_RAG_DIAGNOSTICS -> showRagDiagnosticsDialog()
+            SettingsActivity.ACTION_BACKGROUND_TASKS -> showBackgroundTasksDialog()
+            SettingsActivity.ACTION_LOCAL_MODEL_MANAGER -> showLocalModelManagerDialog()
             SettingsActivity.ACTION_OPEN_CHAT_HISTORY -> showChatHistoryDialog()
             SettingsActivity.ACTION_OPEN_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
             SettingsActivity.ACTION_SET_DOCUMENT_ANSWER_LENGTH -> {
@@ -2272,6 +3074,11 @@ class MainActivity : AppCompatActivity() {
 
         scope.launch {
             isProcessingFile = true
+            semanticIndexingStatus = SEMANTIC_INDEX_STATUS_RUNNING
+            semanticIndexingDocumentTitle = document.title
+            semanticIndexingStartedAt = System.currentTimeMillis()
+            semanticIndexingLastMessage = "جاري فهرسة المستند دلاليًا..."
+            renderBackgroundTasksDialog()
             updateButtons()
             setStatusInfo("جاري فهرسة المستند دلاليًا...")
 
@@ -2301,14 +3108,29 @@ class MainActivity : AppCompatActivity() {
 
                     embeddingStore.saveIndex(document.id, indexedChunks)
                 }
+                semanticIndexingStatus = SEMANTIC_INDEX_STATUS_SUCCESS
+                semanticIndexingLastMessage = "تم إنشاء الفهرس الدلالي."
+                renderBackgroundTasksDialog()
                 setStatusSuccess("تم إنشاء الفهرس الدلالي")
             } catch (error: EmbeddingEngine.UnsupportedEmbeddingModelException) {
+                semanticIndexingStatus = SEMANTIC_INDEX_STATUS_FAILED
+                semanticIndexingLastMessage = error.message ?: "تعذر إنشاء الفهرس الدلالي."
+                renderBackgroundTasksDialog()
                 setStatusError(error.message ?: "تعذر إنشاء الفهرس الدلالي.")
             } catch (error: IllegalStateException) {
+                semanticIndexingStatus = SEMANTIC_INDEX_STATUS_FAILED
+                semanticIndexingLastMessage = error.message ?: "تعذر إنشاء الفهرس الدلالي."
+                renderBackgroundTasksDialog()
                 setStatusError(error.message ?: "تعذر إنشاء الفهرس الدلالي.")
             } catch (_: OutOfMemoryError) {
+                semanticIndexingStatus = SEMANTIC_INDEX_STATUS_FAILED
+                semanticIndexingLastMessage = "تعذر إنشاء الفهرس الدلالي بسبب حجم المستند."
+                renderBackgroundTasksDialog()
                 setStatusError("تعذر إنشاء الفهرس الدلالي بسبب حجم المستند.")
             } catch (_: Exception) {
+                semanticIndexingStatus = SEMANTIC_INDEX_STATUS_FAILED
+                semanticIndexingLastMessage = "تعذر إنشاء الفهرس الدلالي الآن."
+                renderBackgroundTasksDialog()
                 setStatusError("تعذر إنشاء الفهرس الدلالي الآن.")
             } finally {
                 isProcessingFile = false
@@ -2374,6 +3196,7 @@ class MainActivity : AppCompatActivity() {
     private fun processPdfUri(uri: Uri) {
         val title = getDisplayName(uri) ?: DEFAULT_PDF_TITLE
         val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
+            .addTag(PDF_PROCESSING_TAG)
             .setInputData(
                 workDataOf(
                     PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
@@ -2520,9 +3343,23 @@ class MainActivity : AppCompatActivity() {
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
         private const val DEFAULT_PDF_TITLE = "ملف PDF"
+        private const val PDF_PROCESSING_TAG = "pdf_processing"
         private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
         private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
         private const val SEMANTIC_GENERATION_STATUS = "تم استخدام البحث الدلالي • جاري التوليد..."
+        private const val BACKGROUND_TASKS_MAX_PDF_ITEMS = 8
+        private const val SEMANTIC_INDEX_STATUS_IDLE = "idle"
+        private const val SEMANTIC_INDEX_STATUS_RUNNING = "running"
+        private const val SEMANTIC_INDEX_STATUS_SUCCESS = "success"
+        private const val SEMANTIC_INDEX_STATUS_FAILED = "failed"
+        private const val ATTACH_BUTTON_PRESS_DURATION_MS = 120L
+        private const val SEND_BUTTON_PULSE_DURATION_MS = 420L
+        private const val TYPING_PULSE_DURATION_MS = 680L
+        private const val LOCAL_MODEL_TEST_MAX_OUTPUT_CHARS = 240
+        private const val LOCAL_MODEL_SHORT_TEST_PROMPT =
+            "اكتب جملة عربية قصيرة جدًا من 4 إلى 6 كلمات فقط."
+        private const val LOCAL_MODEL_SPEED_TEST_PROMPT =
+            "اكتب قائمة من 1 إلى 10 بالأرقام فقط في سطر واحد."
         private const val SEMANTIC_FALLBACK_GENERATION_STATUS =
             "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
     }
@@ -2550,6 +3387,20 @@ private data class LiteRtDiagnosticsData(
     val lastResponseCharCountLabel: String,
     val backendLabel: String
 )
+
+private data class LocalModelProbeResult(
+    val success: Boolean,
+    val firstTokenLatencyMs: Long? = null,
+    val totalDurationMs: Long? = null,
+    val responseCharCount: Int? = null,
+    val errorMessage: String? = null
+)
+
+private enum class LocalModelQuickTestType(val label: String) {
+    SHORT_GENERATION("اختبار التوليد القصير"),
+    MEMORY("اختبار الذاكرة"),
+    SPEED("اختبار السرعة")
+}
 
 private data class DocumentRetrievalOutcome(
     val chunks: List<RetrievedChunk> = emptyList(),

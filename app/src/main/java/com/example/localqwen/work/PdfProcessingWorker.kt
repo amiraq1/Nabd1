@@ -31,7 +31,7 @@ class PdfProcessingWorker(
         val uri = Uri.parse(uriString)
 
         return try {
-            val extractedText = extractPdfText(uri)
+            val extractedText = extractPdfText(uri, title)
             if (extractedText.isBlank()) {
                 return failureResult("لم يتم العثور على نص واضح في ملف PDF")
             }
@@ -63,7 +63,7 @@ class PdfProcessingWorker(
         }
     }
 
-    private suspend fun extractPdfText(uri: Uri): String {
+    private suspend fun extractPdfText(uri: Uri, title: String): String {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
             applicationContext.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
@@ -75,6 +75,7 @@ class PdfProcessingWorker(
                     for (index in 0 until pageCount) {
                         setProgress(
                             workDataOf(
+                                KEY_PDF_TITLE to title,
                                 KEY_PROGRESS_PAGE to (index + 1),
                                 KEY_PROGRESS_TOTAL to pageCount
                             )

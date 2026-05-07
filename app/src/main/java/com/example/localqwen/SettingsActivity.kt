@@ -229,6 +229,22 @@ class SettingsActivity : AppCompatActivity() {
 
         addOptionRow(
             sectionApp,
+            "◷",
+            "مهام الخلفية",
+            "حالة تحليل PDF والفهرسة الدلالية"
+        ) {
+            finishWithAction(ACTION_BACKGROUND_TASKS)
+        }
+        addOptionRow(
+            sectionApp,
+            "◉",
+            "إدارة النماذج المحلية",
+            "عرض النموذج الحالي، الحالة، الحجم، والاختبارات"
+        ) {
+            finishWithAction(ACTION_LOCAL_MODEL_MANAGER)
+        }
+        addOptionRow(
+            sectionApp,
             "⧉",
             "نسخ تقرير بيتا",
             "معلومات الجهاز والنموذج والأداء بدون بياناتك الخاصة"
@@ -383,6 +399,8 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_COPY_LAST_RESPONSE = "copy_last_response"
         const val ACTION_OPEN_CHAT_HISTORY = "open_chat_history"
         const val ACTION_OPEN_DOCUMENT_LIBRARY = "open_document_library"
+        const val ACTION_BACKGROUND_TASKS = "background_tasks"
+        const val ACTION_LOCAL_MODEL_MANAGER = "local_model_manager"
         const val ACTION_COPY_BETA_REPORT = "copy_beta_report"
         const val ACTION_ABOUT = "about"
 
