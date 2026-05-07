@@ -47,5 +47,5 @@ object TextChunker {
         return chunks
     }
 
-    private const val MAX_CHUNKS = 256
+    private const val MAX_CHUNKS = 300
 }

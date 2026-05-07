@@ -1,5 +1,8 @@
 package com.example.localqwen.rag
 
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
+
 data class RetrievedChunk(
     val documentId: String,
     val documentTitle: String,
@@ -9,16 +12,91 @@ data class RetrievedChunk(
 )
 
 class SemanticRetriever(
-    private val embeddingModelManager: EmbeddingModelManager,
+    private val embeddingEngine: EmbeddingEngine,
     private val embeddingStore: EmbeddingStore
 ) {
+    @Volatile
+    private var lastFailureReason: String? = null
+
     fun retrieveSemantic(documentId: String?, query: String): List<RetrievedChunk> {
+        lastFailureReason = null
+
         if (documentId.isNullOrBlank()) return emptyList()
         if (query.isBlank()) return emptyList()
-        if (!embeddingModelManager.isEmbeddingModelReady()) return emptyList()
-        if (!embeddingStore.hasIndex(documentId)) return emptyList()
+        if (!embeddingEngine.isReady()) return emptyList()
 
-        // Phase 1 only prepares semantic infrastructure. Vector generation and search come later.
-        return emptyList()
+        val index = embeddingStore.loadIndex(documentId)
+        if (index == null || index.chunks.isEmpty()) return emptyList()
+
+        return try {
+            val queryVector = embeddingEngine.embed(query)
+            if (queryVector.isEmpty()) return emptyList()
+
+            val scoredChunks = index.chunks.mapNotNull { chunk ->
+                val similarity = cosineSimilarity(queryVector, chunk.vector) ?: return@mapNotNull null
+                if (!similarity.isFinite()) return@mapNotNull null
+                ScoredChunk(chunk, similarity)
+            }.sortedByDescending { it.similarity }
+
+            if (scoredChunks.isEmpty()) {
+                emptyList()
+            } else if (scoredChunks.first().similarity < MIN_SEMANTIC_SIMILARITY) {
+                emptyList()
+            } else {
+                scoredChunks
+                    .take(MAX_RETRIEVED_CHUNKS)
+                    .map { scored ->
+                        RetrievedChunk(
+                            documentId = index.documentId,
+                            documentTitle = "",
+                            chunkIndex = scored.chunk.chunkIndex,
+                            text = scored.chunk.text,
+                            score = (scored.similarity * SCORE_SCALE).roundToInt()
+                        )
+                    }
+            }
+        } catch (error: EmbeddingEngine.UnsupportedEmbeddingModelException) {
+            lastFailureReason = error.message
+            emptyList()
+        } catch (_: Exception) {
+            lastFailureReason = "تعذر استخدام البحث الدلالي الآن."
+            emptyList()
+        }
+    }
+
+    fun lastFailureReason(): String? = lastFailureReason
+
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float? {
+        if (a.size != b.size || a.isEmpty()) {
+            lastFailureReason = "أبعاد الفهرس الدلالي لا تطابق النموذج الحالي."
+            return null
+        }
+
+        var dot = 0.0
+        var normA = 0.0
+        var normB = 0.0
+
+        for (index in a.indices) {
+            val aValue = a[index].toDouble()
+            val bValue = b[index].toDouble()
+            dot += aValue * bValue
+            normA += aValue * aValue
+            normB += bValue * bValue
+        }
+
+        if (normA <= 0.0 || normB <= 0.0) return null
+
+        return (dot / (sqrt(normA) * sqrt(normB))).toFloat()
+    }
+
+    private data class ScoredChunk(
+        val chunk: EmbeddingStore.IndexedChunk,
+        val similarity: Float
+    )
+
+    companion object {
+        private const val MAX_RETRIEVED_CHUNKS = 3
+        private const val SCORE_SCALE = 1000f
+        private const val MIN_SEMANTIC_SIMILARITY = 0.05f
     }
 }

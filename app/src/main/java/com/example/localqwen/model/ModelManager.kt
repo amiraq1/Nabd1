@@ -37,12 +37,21 @@ class ModelManager(private val context: Context) {
         }
     }
 
+    fun getModelById(modelId: String): SupportedModel? {
+        return SUPPORTED_MODELS.firstOrNull { it.id == modelId }
+    }
+
     fun modelFile(model: SupportedModel): File {
         val targetFile = File(modelDir(model), "model.litertlm")
         if (model.id == "gemma_e2b" && !targetFile.exists() && legacyModelFile.exists()) {
             legacyModelFile.copyTo(targetFile, overwrite = false)
         }
         return targetFile
+    }
+
+    fun getModelFile(modelId: String): File? {
+        val model = getModelById(modelId) ?: return null
+        return modelFile(model)
     }
 
     fun modelPath(model: SupportedModel): String = modelFile(model).absolutePath
@@ -52,7 +61,22 @@ class ModelManager(private val context: Context) {
         return file.exists() && file.length() > 10_000_000
     }
 
+    fun isModelImported(modelId: String): Boolean {
+        val file = getModelFile(modelId) ?: return false
+        return file.exists() && file.isFile && file.length() > 0L
+    }
+
+    fun modelSizeBytes(modelId: String): Long {
+        val file = getModelFile(modelId) ?: return 0L
+        return if (file.exists() && file.isFile) file.length() else 0L
+    }
+
     fun deleteModel(model: SupportedModel): Boolean {
         return modelDir(model).deleteRecursively()
+    }
+
+    fun deleteModel(modelId: String): Boolean {
+        val model = getModelById(modelId) ?: return false
+        return deleteModel(model)
     }
 }

@@ -16,6 +16,16 @@ class EmbeddingModelManager(private val context: Context) {
         return embeddingModelFile().absolutePath
     }
 
+    fun modelSizeBytes(): Long {
+        val file = embeddingModelFile()
+        return if (file.exists() && file.isFile) file.length() else 0L
+    }
+
+    fun modelLastModified(): Long {
+        val file = embeddingModelFile()
+        return if (file.exists() && file.isFile) file.lastModified() else 0L
+    }
+
     @Throws(IOException::class)
     fun importEmbeddingModel(uri: Uri) {
         val target = embeddingModelFile()
@@ -32,6 +42,15 @@ class EmbeddingModelManager(private val context: Context) {
             temp.copyTo(target, overwrite = true)
             temp.delete()
         }
+    }
+
+    fun deleteEmbeddingModel(): Boolean {
+        val target = embeddingModelFile()
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        if (temp.exists()) {
+            temp.delete()
+        }
+        return !target.exists() || target.delete()
     }
 
     private fun embeddingModelFile(): File {

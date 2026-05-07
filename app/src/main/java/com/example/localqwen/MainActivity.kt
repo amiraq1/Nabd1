@@ -10,10 +10,12 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -34,11 +36,14 @@ import com.example.localqwen.document.DocumentToolIntent
 import com.example.localqwen.document.DocumentToolRequest
 import com.example.localqwen.document.DocumentToolRouter
 import com.example.localqwen.document.LocalDocument
+import com.example.localqwen.rag.EmbeddingBackend
+import com.example.localqwen.rag.EmbeddingEngine
 import com.example.localqwen.model.ModelManager
 import com.example.localqwen.model.ModelManager.SupportedModel
 import com.example.localqwen.prompt.NabdSystemPrompt
 import com.example.localqwen.rag.EmbeddingModelManager
 import com.example.localqwen.rag.EmbeddingStore
+import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
@@ -92,6 +97,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chatSessionStore: ChatSessionStore
     private lateinit var phoneToolManager: PhoneToolManager
     private lateinit var embeddingModelManager: EmbeddingModelManager
+    private lateinit var embeddingEngine: EmbeddingEngine
     private lateinit var embeddingStore: EmbeddingStore
     private lateinit var semanticRetriever: SemanticRetriever
 
@@ -123,6 +129,7 @@ class MainActivity : AppCompatActivity() {
     private var isLoadingModel = false
     private var isGenerating = false
     private var isProcessingFile = false
+    private var isPreparingDocumentContext = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,8 +140,13 @@ class MainActivity : AppCompatActivity() {
         chatSessionStore = ChatSessionStore(preferences)
         phoneToolManager = PhoneToolManager(this)
         embeddingModelManager = EmbeddingModelManager(this)
+        embeddingEngine = EmbeddingEngine(
+            context = this,
+            embeddingModelManager = embeddingModelManager,
+            backendSelector = ::currentEmbeddingBackend
+        )
         embeddingStore = EmbeddingStore(this)
-        semanticRetriever = SemanticRetriever(embeddingModelManager, embeddingStore)
+        semanticRetriever = SemanticRetriever(embeddingEngine, embeddingStore)
         chatAdapter = ChatAdapter(this)
 
         statusView = findViewById(R.id.statusTextView)
@@ -169,6 +181,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         saveSessionJob?.cancel()
+        embeddingEngine.close()
         closeModelResources()
         scope.cancel()
         super.onDestroy()
@@ -328,6 +341,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun currentModelStatusLabel(): String {
         return when {
+            isLoadingModel -> "جاري التشغيل"
             engine != null && loadedModelId == selectedModel.id -> "مشغّل"
             modelManager.isModelReady(selectedModel) -> "غير مشغّل"
             else -> "غير مستورد"
@@ -336,7 +350,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateButtons() {
         val hasInput = inputView.text?.toString()?.trim()?.isNotEmpty() == true
-        val busy = isGenerating || isProcessingFile
+        val busy = isGenerating || isProcessingFile || isPreparingDocumentContext
         val blocked = busy || isLoadingModel
 
         optionsButton.isEnabled = !blocked
@@ -384,6 +398,16 @@ class MainActivity : AppCompatActivity() {
         }.getOrDefault(RagMode.AUTO)
     }
 
+    private fun currentEmbeddingBackend(): EmbeddingBackend {
+        return runCatching {
+            EmbeddingBackend.valueOf(
+                preferences.getString(KEY_EMBEDDING_BACKEND, EmbeddingBackend.AUTO.name)
+                    ?.uppercase(Locale.US)
+                    ?: EmbeddingBackend.AUTO.name
+            )
+        }.getOrDefault(EmbeddingBackend.AUTO)
+    }
+
     private fun documentAnswerLengthLabel(value: String): String {
         return when (value) {
             "medium" -> "متوسط"
@@ -400,6 +424,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun embeddingBackendLabel(backend: EmbeddingBackend): String {
+        return when (backend) {
+            EmbeddingBackend.MEDIAPIPE -> "MediaPipe"
+            EmbeddingBackend.TFLITE -> "TensorFlow Lite"
+            EmbeddingBackend.AUTO -> "تلقائي"
+        }
+    }
+
     private fun updateDocumentAnswerLength(value: String) {
         val session = chatSessionStore.getActiveOrCreateSession()
         session.documentAnswerLength = value
@@ -412,6 +444,39 @@ class MainActivity : AppCompatActivity() {
         val mode = runCatching { RagMode.valueOf(value.uppercase(Locale.US)) }.getOrDefault(RagMode.AUTO)
         preferences.edit().putString(KEY_RAG_SEARCH_MODE, mode.name).apply()
         setStatusSuccess("تم ضبط وضع البحث: ${ragModeLabel(mode)}")
+    }
+
+    private fun updateEmbeddingBackend(value: String) {
+        val backend = runCatching {
+            EmbeddingBackend.valueOf(value.uppercase(Locale.US))
+        }.getOrDefault(EmbeddingBackend.AUTO)
+        preferences.edit().putString(KEY_EMBEDDING_BACKEND, backend.name).apply()
+        embeddingEngine.close()
+        setStatusSuccess("تم ضبط محرك التضمين: ${embeddingBackendLabel(backend)}")
+    }
+
+    private fun embeddingModelSettingsStatus(): String {
+        if (!embeddingModelManager.isEmbeddingModelReady()) {
+            return "غير مستورد"
+        }
+
+        val sizeBytes = embeddingModelManager.modelSizeBytes()
+        return if (sizeBytes > 0L) {
+            "مستورد - ${formatStorageSize(sizeBytes)}"
+        } else {
+            "مستورد"
+        }
+    }
+
+    private fun modelImportStatus(model: SupportedModel): String {
+        val imported = modelManager.isModelImported(model.id)
+        if (!imported) return "غير مستورد"
+        val sizeBytes = modelManager.modelSizeBytes(model.id)
+        return if (sizeBytes > 0L) {
+            "مستورد - ${formatStorageSize(sizeBytes)}"
+        } else {
+            "مستورد"
+        }
     }
 
     private fun currentDocumentAnswerLengthInstruction(): String {
@@ -552,55 +617,94 @@ class MainActivity : AppCompatActivity() {
             .ifEmpty { scored.take(MAX_RETRIEVED_CHUNKS) }
     }
 
-    private fun retrieveDocumentChunks(query: String): List<RetrievedChunk> {
-        val document = getSelectedDocument() ?: return emptyList()
+    private fun retrieveDocumentChunks(query: String): DocumentRetrievalOutcome {
+        val document = getSelectedDocument() ?: return DocumentRetrievalOutcome()
         val keywordResults = { retrieveKeywordDocumentChunks(document, query) }
 
         return when (currentRagMode()) {
-            RagMode.KEYWORD -> keywordResults()
+            RagMode.KEYWORD -> {
+                DocumentRetrievalOutcome(
+                    chunks = keywordResults(),
+                    generationStatus = KEYWORD_GENERATION_STATUS
+                )
+            }
             RagMode.AUTO -> {
-                val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
-                if (semanticResults.isNotEmpty()) semanticResults else keywordResults()
+                val canUseSemantic = embeddingEngine.isReady() && embeddingStore.hasIndex(document.id)
+                if (canUseSemantic) {
+                    val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
+                        .map { it.copy(documentTitle = document.title) }
+                    if (semanticResults.isNotEmpty()) {
+                        DocumentRetrievalOutcome(
+                            chunks = semanticResults,
+                            generationStatus = SEMANTIC_GENERATION_STATUS
+                        )
+                    } else {
+                        DocumentRetrievalOutcome(
+                            chunks = keywordResults(),
+                            generationStatus = KEYWORD_GENERATION_STATUS
+                        )
+                    }
+                } else {
+                    DocumentRetrievalOutcome(
+                        chunks = keywordResults(),
+                        generationStatus = KEYWORD_GENERATION_STATUS
+                    )
+                }
             }
             RagMode.SEMANTIC -> {
                 val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
+                    .map { it.copy(documentTitle = document.title) }
                 if (semanticResults.isNotEmpty()) {
-                    semanticResults
+                    DocumentRetrievalOutcome(
+                        chunks = semanticResults,
+                        generationStatus = SEMANTIC_GENERATION_STATUS
+                    )
                 } else {
-                    when {
-                        !embeddingModelManager.isEmbeddingModelReady() -> {
-                            setStatusInfo("نموذج التضمين غير مستورد بعد، تم استخدام البحث النصي.")
-                        }
-                        !embeddingStore.hasIndex(document.id) -> {
-                            setStatusInfo("الفهرس الدلالي غير جاهز لهذا المستند، تم استخدام البحث النصي.")
-                        }
-                        else -> {
-                            setStatusInfo("تعذر استخدام البحث الدلالي الآن، تم استخدام البحث النصي.")
-                        }
-                    }
-                    keywordResults()
+                    val failureReason = semanticRetriever.lastFailureReason()
+                        ?: embeddingEngine.lastFailureReason()
+                    DocumentRetrievalOutcome(
+                        chunks = keywordResults(),
+                        generationStatus = semanticFallbackGenerationStatus(failureReason)
+                    )
                 }
             }
         }
     }
 
-    private fun buildDocumentContext(query: String): String? {
-        val chunks = retrieveDocumentChunks(query)
-        if (chunks.isEmpty()) return null
+    private fun semanticFallbackGenerationStatus(reason: String?): String {
+        return if (reason.isNullOrBlank()) {
+            SEMANTIC_FALLBACK_GENERATION_STATUS
+        } else {
+            "$reason\nتم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+        }
+    }
+
+    private fun buildDocumentContext(query: String): DocumentContextResult {
+        val outcome = retrieveDocumentChunks(query)
+        if (outcome.chunks.isEmpty()) {
+            return DocumentContextResult(
+                context = null,
+                generationStatus = DEFAULT_GENERATION_STATUS
+            )
+        }
 
         val builder = StringBuilder()
-        chunks.forEachIndexed { index, chunk ->
+        outcome.chunks.forEachIndexed { index, chunk ->
             val block = "[مقتطف ${index + 1} من ${chunk.documentTitle}]\n${chunk.text.safeTruncate(DOCUMENT_CHUNK_SIZE)}"
             if (builder.length + block.length + 2 <= MAX_DOCUMENT_CONTEXT_CHARS) {
                 if (builder.isNotEmpty()) builder.append("\n\n")
                 builder.append(block)
             }
         }
-        return builder.toString().takeIf { it.isNotBlank() }
+        val context = builder.toString().takeIf { it.isNotBlank() }
+        return DocumentContextResult(
+            context = context,
+            generationStatus = if (context != null) outcome.generationStatus else DEFAULT_GENERATION_STATUS
+        )
     }
 
     private fun sendPrompt() {
-        if (isGenerating || isProcessingFile || isLoadingModel) return
+        if (isGenerating || isProcessingFile || isLoadingModel || isPreparingDocumentContext) return
         val input = inputView.text.toString().trim()
         if (input.isEmpty()) return
 
@@ -621,28 +725,52 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val context = buildDocumentContext(input)
-        val prompt = if (context != null) {
-            NabdSystemPrompt.documentPrompt(
-                userInput = input,
-                contextChunks = context,
-                answerLengthInstruction = currentDocumentAnswerLengthInstruction()
-            )
-        } else {
-            NabdSystemPrompt.normalChatPrompt(input)
-        }
-
         inputView.setText("")
         addChatMessage(ChatMessage(role = Role.USER, text = input))
         val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
         addChatMessage(assistantMessage)
-        startAssistantGeneration(
-            prompt = prompt,
-            assistant = assistantMessage,
-            status = "جاري التوليد...",
-            autoTitle = chatMessages.count { it.role == Role.USER } == 1,
-            firstUserMessage = input
+
+        isPreparingDocumentContext = true
+        updateButtons()
+        setStatusInfo(
+            if (getSelectedDocument() != null) {
+                "جاري تجهيز سياق المستند..."
+            } else {
+                DEFAULT_GENERATION_STATUS
+            }
         )
+
+        scope.launch {
+            val contextResult = try {
+                withContext(Dispatchers.IO) { buildDocumentContext(input) }
+            } catch (_: Exception) {
+                DocumentContextResult(
+                    context = null,
+                    generationStatus = DEFAULT_GENERATION_STATUS
+                )
+            }
+
+            val prompt = if (contextResult.context != null) {
+                NabdSystemPrompt.documentPrompt(
+                    userInput = input,
+                    contextChunks = contextResult.context,
+                    answerLengthInstruction = currentDocumentAnswerLengthInstruction()
+                )
+            } else {
+                NabdSystemPrompt.normalChatPrompt(input)
+            }
+
+            isPreparingDocumentContext = false
+            updateButtons()
+
+            startAssistantGeneration(
+                prompt = prompt,
+                assistant = assistantMessage,
+                status = contextResult.generationStatus,
+                autoTitle = chatMessages.count { it.role == Role.USER } == 1,
+                firstUserMessage = input
+            )
+        }
     }
 
     private fun addChatMessage(message: ChatMessage) {
@@ -881,7 +1009,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun unloadModel() {
+    private fun unloadModel(postSuccessMessage: String? = null) {
         if (isLoadingModel) return
         isLoadingModel = true
         updateButtons()
@@ -890,7 +1018,11 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { closeModelResources() }
-                setStatusInfo("تم إيقاف نبض")
+                if (postSuccessMessage.isNullOrBlank()) {
+                    setStatusInfo("تم إيقاف نبض")
+                } else {
+                    setStatusSuccess(postSuccessMessage)
+                }
             } finally {
                 isLoadingModel = false
                 updateButtons()
@@ -996,15 +1128,15 @@ class MainActivity : AppCompatActivity() {
         val session = chatSessionStore.getActiveOrCreateSession()
         val intent = SettingsActivity.createIntent(
             context = this,
-            modelDescription = modelDescription(selectedModel),
+            modelDescription = selectedModel.displayName,
             modelStatus = currentModelStatusLabel(),
+            modelE2bStatus = modelImportStatus(modelById(MODEL_ID_E2B)),
+            modelE4bStatus = modelImportStatus(modelById(MODEL_ID_E4B)),
             documentAnswerLength = currentDocumentAnswerLength(),
             ragSearchMode = currentRagMode().name.lowercase(Locale.US),
-            embeddingModelStatus = if (embeddingModelManager.isEmbeddingModelReady()) {
-                "تم استيراد نموذج التضمين"
-            } else {
-                "نموذج التضمين غير مستورد بعد"
-            },
+            embeddingBackend = currentEmbeddingBackend().name.lowercase(Locale.US),
+            embeddingModelStatus = embeddingModelSettingsStatus(),
+            embeddingIndexCount = embeddingStore.countIndexes(),
             selectedDocumentTitle = getSelectedDocument()?.title,
             sessionTitle = session.title,
             appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
@@ -1063,12 +1195,38 @@ class MainActivity : AppCompatActivity() {
         container.addView(row)
     }
 
+    private fun modelById(modelId: String): SupportedModel {
+        return supportedModels.firstOrNull { it.id == modelId } ?: supportedModels.first()
+    }
+
     private fun modelDescription(model: SupportedModel): String {
-        return when (model.id) {
-            "gemma_e2b" -> "${model.displayName} — سريع ومتوازن"
-            "gemma_e4b" -> "${model.displayName} — للمهام الثقيلة"
-            else -> model.displayName
+        return model.displayName
+    }
+
+    private fun showMainModelManagementDialog(model: SupportedModel) {
+        if (!modelManager.isModelImported(model.id)) {
+            beginModelImportFor(model)
+            return
         }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(model.displayName)
+            .setItems(
+                arrayOf(
+                    "اختيار هذا النموذج",
+                    "إعادة الاستيراد",
+                    "حذف النموذج",
+                    "إلغاء"
+                )
+            ) { dialog, which ->
+                when (which) {
+                    0 -> selectMainModelFromSettings(model)
+                    1 -> beginModelImportFor(model)
+                    2 -> confirmDeleteMainModel(model)
+                    else -> dialog.dismiss()
+                }
+            }
+            .show()
     }
 
     private fun showModelSelectionDialog() {
@@ -1101,12 +1259,192 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showRagDiagnosticsDialog() {
+        scope.launch {
+            val selectedDocument = getSelectedDocument()
+            val diagnostics = withContext(Dispatchers.IO) {
+                buildRagDiagnosticsData(selectedDocument)
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("تشخيص البحث الدلالي")
+                .setView(buildRagDiagnosticsView(diagnostics))
+                .setPositiveButton("إغلاق", null)
+                .apply {
+                    if (diagnostics.canBuildIndex) {
+                        setNeutralButton("إنشاء فهرس") { _, _ ->
+                            confirmBuildSelectedDocumentSemanticIndex()
+                        }
+                    }
+                }
+                .show()
+        }
+    }
+
+    private fun buildRagDiagnosticsData(selectedDocument: LocalDocument?): RagDiagnosticsData {
+        val modelReady = embeddingModelManager.isEmbeddingModelReady()
+        val indexInfo = selectedDocument?.id?.let(embeddingStore::getIndexInfo)
+        val lastState = when {
+            !modelReady -> "استورد نموذج تضمين أولًا."
+            selectedDocument == null -> "اختر مستندًا من مكتبة المستندات."
+            indexInfo == null || indexInfo.chunkCount <= 0 -> "أنشئ فهرسًا دلاليًا للمستند."
+            else -> "البحث الدلالي جاهز لهذا المستند."
+        }
+
+        return RagDiagnosticsData(
+            ragModeLabel = ragModeLabel(currentRagMode()),
+            embeddingBackendLabel = embeddingBackendLabel(currentEmbeddingBackend()),
+            embeddingModelImported = modelReady,
+            embeddingModelDisplayPath = "files/${EmbeddingModelManager.EMBEDDING_MODEL_RELATIVE_PATH}",
+            selectedDocumentTitle = selectedDocument?.title ?: "لا يوجد مستند محدد",
+            indexInfo = indexInfo,
+            lastState = lastState,
+            canBuildIndex = modelReady && selectedDocument != null
+        )
+    }
+
+    private fun buildRagDiagnosticsView(data: RagDiagnosticsData): View {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val bottomSpacing = (14 * density).toInt()
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding / 2, outerPadding, outerPadding / 2)
+        }
+
+        appendDiagnosticsField(
+            content,
+            "وضع البحث في المستندات",
+            data.ragModeLabel,
+            Color.WHITE,
+            bottomSpacing
+        )
+        appendDiagnosticsField(
+            content,
+            "محرك التضمين",
+            data.embeddingBackendLabel,
+            Color.parseColor("#FF7000"),
+            bottomSpacing
+        )
+        appendDiagnosticsField(
+            content,
+            "نموذج التضمين",
+            buildString {
+                append(if (data.embeddingModelImported) "مستورد" else "غير مستورد")
+                append("\n")
+                append(data.embeddingModelDisplayPath)
+            },
+            if (data.embeddingModelImported) Color.parseColor("#10B981") else Color.parseColor("#EF4444"),
+            bottomSpacing
+        )
+        appendDiagnosticsField(
+            content,
+            "المستند المحدد",
+            data.selectedDocumentTitle,
+            Color.WHITE,
+            bottomSpacing
+        )
+
+        val indexValue = when {
+            data.selectedDocumentTitle == "لا يوجد مستند محدد" -> "اختر مستندًا أولًا."
+            data.indexInfo == null -> "غير موجود"
+            else -> {
+                buildString {
+                    append("موجود")
+                    append("\nعدد المقاطع: ${data.indexInfo.chunkCount}")
+                    append("\nتاريخ إنشاء الفهرس: ${formatDateTime(data.indexInfo.createdAt)}")
+                }
+            }
+        }
+        appendDiagnosticsField(
+            content,
+            "الفهرس الدلالي للمستند",
+            indexValue,
+            if (data.indexInfo != null) Color.parseColor("#10B981") else Color.parseColor("#EF4444"),
+            bottomSpacing
+        )
+        appendDiagnosticsField(
+            content,
+            "آخر حالة",
+            data.lastState,
+            if (data.lastState == "البحث الدلالي جاهز لهذا المستند.") {
+                Color.parseColor("#10B981")
+            } else {
+                Color.parseColor("#FF7000")
+            },
+            0
+        )
+
+        return ScrollView(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            isFillViewport = true
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private fun appendDiagnosticsField(
+        container: LinearLayout,
+        title: String,
+        value: String,
+        valueColor: Int,
+        bottomMargin: Int
+    ) {
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+
+        wrapper.addView(
+            TextView(this).apply {
+                text = title
+                setTextColor(Color.parseColor("#A0A0A0"))
+                textSize = 13f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+        )
+        wrapper.addView(
+            TextView(this).apply {
+                text = value
+                setTextColor(valueColor)
+                textSize = 15f
+                setLineSpacing(0f, 1.2f)
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+        )
+
+        container.addView(
+            wrapper,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                this.bottomMargin = bottomMargin
+            }
+        )
+    }
+
     private fun handleSettingsAction(data: Intent?) {
         val action = data?.getStringExtra(SettingsActivity.EXTRA_ACTION) ?: return
         when (action) {
             SettingsActivity.ACTION_SELECT_MODEL -> showModelSelectionDialog()
             SettingsActivity.ACTION_IMPORT_MODEL -> openFilePicker()
+            SettingsActivity.ACTION_MANAGE_MODEL_E2B -> showMainModelManagementDialog(modelById(MODEL_ID_E2B))
+            SettingsActivity.ACTION_MANAGE_MODEL_E4B -> showMainModelManagementDialog(modelById(MODEL_ID_E4B))
             SettingsActivity.ACTION_IMPORT_EMBEDDING_MODEL -> openEmbeddingModelPicker()
+            SettingsActivity.ACTION_DELETE_EMBEDDING_MODEL -> confirmDeleteEmbeddingModel()
+            SettingsActivity.ACTION_DELETE_EMBEDDING_INDEXES -> confirmDeleteEmbeddingIndexes()
+            SettingsActivity.ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX -> confirmBuildSelectedDocumentSemanticIndex()
+            SettingsActivity.ACTION_RAG_DIAGNOSTICS -> showRagDiagnosticsDialog()
             SettingsActivity.ACTION_OPEN_CHAT_HISTORY -> showChatHistoryDialog()
             SettingsActivity.ACTION_OPEN_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
             SettingsActivity.ACTION_SET_DOCUMENT_ANSWER_LENGTH -> {
@@ -1117,6 +1455,10 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_SET_RAG_SEARCH_MODE -> {
                 val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
                 updateRagMode(value)
+            }
+            SettingsActivity.ACTION_SET_EMBEDDING_BACKEND -> {
+                val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
+                updateEmbeddingBackend(value)
             }
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
@@ -1387,6 +1729,66 @@ class MainActivity : AppCompatActivity() {
         updateButtons()
     }
 
+    private fun selectMainModelFromSettings(model: SupportedModel) {
+        val previousModelId = selectedModel.id
+        selectedModel = model
+        preferences.edit().putString(KEY_SELECTED_MODEL_ID, model.id).apply()
+
+        if (loadedModelId != null && loadedModelId != model.id) {
+            unloadModel("تم اختيار النموذج. شغّل نبض لاستخدامه.")
+        } else if (previousModelId != model.id) {
+            setStatusSuccess("تم اختيار النموذج. شغّل نبض لاستخدامه.")
+        } else {
+            setStatusInfo(currentStatus())
+        }
+        updateButtons()
+    }
+
+    private fun beginModelImportFor(model: SupportedModel) {
+        selectedModel = model
+        preferences.edit().putString(KEY_SELECTED_MODEL_ID, model.id).apply()
+        setStatusInfo("اختر ملف النموذج لـ ${model.displayName}")
+        openFilePicker()
+    }
+
+    private fun confirmDeleteMainModel(model: SupportedModel) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف النموذج؟")
+            .setMessage("سيتم حذف ملف النموذج من تخزين التطبيق. يمكنك استيراده مرة أخرى لاحقًا.")
+            .setPositiveButton("حذف") { _, _ ->
+                deleteMainModel(model)
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun deleteMainModel(model: SupportedModel) {
+        scope.launch {
+            isLoadingModel = true
+            updateButtons()
+            setStatusInfo("جاري حذف النموذج...")
+
+            try {
+                if (loadedModelId == model.id) {
+                    withContext(Dispatchers.IO) { closeModelResources() }
+                }
+                val deleted = withContext(Dispatchers.IO) {
+                    modelManager.deleteModel(model)
+                }
+                if (deleted) {
+                    setStatusSuccess("تم حذف النموذج")
+                } else {
+                    setStatusError("تعذر حذف النموذج")
+                }
+            } catch (_: Exception) {
+                setStatusError("تعذر حذف النموذج")
+            } finally {
+                isLoadingModel = false
+                updateButtons()
+            }
+        }
+    }
+
     private suspend fun importModelFile(uri: Uri) {
         contentResolver.openInputStream(uri)?.buffered()?.use { input ->
             modelManager.modelFile(selectedModel).outputStream().buffered().use { output ->
@@ -1421,9 +1823,163 @@ class MainActivity : AppCompatActivity() {
             setStatusInfo("جاري استيراد نموذج التضمين...")
             try {
                 withContext(Dispatchers.IO) { embeddingModelManager.importEmbeddingModel(uri) }
+                embeddingEngine.close()
                 setStatusSuccess("تم استيراد نموذج التضمين")
             } catch (_: Exception) {
                 setStatusError("فشل استيراد نموذج التضمين")
+            } finally {
+                isProcessingFile = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun confirmDeleteEmbeddingModel() {
+        if (!embeddingModelManager.isEmbeddingModelReady()) {
+            setStatusError("نموذج التضمين غير مستورد.")
+            return
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف نموذج التضمين؟")
+            .setMessage(
+                "سيتم حذف نموذج التضمين المحلي. سيبقى البحث النصي يعمل، لكن البحث الدلالي يحتاج استيراد نموذج جديد."
+            )
+            .setPositiveButton("حذف") { _, _ ->
+                deleteEmbeddingModel()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun deleteEmbeddingModel() {
+        scope.launch {
+            isProcessingFile = true
+            updateButtons()
+            setStatusInfo("جاري حذف نموذج التضمين...")
+            try {
+                val deleted = withContext(Dispatchers.IO) {
+                    embeddingModelManager.deleteEmbeddingModel()
+                }
+                embeddingEngine.close()
+                if (deleted) {
+                    setStatusSuccess("تم حذف نموذج التضمين")
+                } else {
+                    setStatusError("تعذر حذف نموذج التضمين")
+                }
+            } catch (_: Exception) {
+                embeddingEngine.close()
+                setStatusError("تعذر حذف نموذج التضمين")
+            } finally {
+                isProcessingFile = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun confirmDeleteEmbeddingIndexes() {
+        if (embeddingStore.countIndexes() <= 0) {
+            setStatusError("لا توجد فهارس دلالية للحذف.")
+            return
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف الفهارس الدلالية؟")
+            .setMessage("سيتم حذف فهارس البحث الدلالي للمستندات. يمكنك إنشاؤها من جديد لاحقًا.")
+            .setPositiveButton("حذف") { _, _ ->
+                deleteEmbeddingIndexes()
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun deleteEmbeddingIndexes() {
+        scope.launch {
+            isProcessingFile = true
+            updateButtons()
+            setStatusInfo("جاري حذف الفهارس الدلالية...")
+            try {
+                val deleted = withContext(Dispatchers.IO) {
+                    embeddingStore.deleteAllIndexes()
+                }
+                if (deleted) {
+                    setStatusSuccess("تم حذف الفهارس الدلالية")
+                } else {
+                    setStatusError("تعذر حذف الفهارس الدلالية")
+                }
+            } catch (_: Exception) {
+                setStatusError("تعذر حذف الفهارس الدلالية")
+            } finally {
+                isProcessingFile = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun confirmBuildSelectedDocumentSemanticIndex() {
+        val document = getSelectedDocument()
+        if (document == null) {
+            setStatusError("اختر مستندًا أولًا.")
+            return
+        }
+        if (!embeddingModelManager.isEmbeddingModelReady()) {
+            setStatusError("استورد نموذج التضمين أولًا.")
+            return
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("إنشاء فهرس دلالي")
+            .setMessage("سيتم إنشاء فهرس دلالي محلي لهذا المستند. قد يستغرق بعض الوقت.")
+            .setPositiveButton("بدء") { _, _ ->
+                buildSemanticIndex(document)
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun buildSemanticIndex(document: LocalDocument) {
+        if (isGenerating || isLoadingModel || isProcessingFile || isPreparingDocumentContext) return
+
+        scope.launch {
+            isProcessingFile = true
+            updateButtons()
+            setStatusInfo("جاري فهرسة المستند دلاليًا...")
+
+            try {
+                withContext(Dispatchers.IO) {
+                    val chunks = TextChunker.chunkText(
+                        text = document.extractedText.take(DOCUMENT_TEXT_LIMIT),
+                        maxChars = 800,
+                        overlapChars = 120
+                    ).take(MAX_SEMANTIC_INDEX_CHUNKS)
+
+                    if (chunks.isEmpty()) {
+                        throw IllegalStateException("لا يوجد نص كافٍ لفهرسة هذا المستند.")
+                    }
+
+                    val indexedChunks = chunks.mapIndexed { index, chunk ->
+                        EmbeddingStore.IndexedChunk(
+                            chunkIndex = index,
+                            text = chunk,
+                            vector = embeddingEngine.embed(chunk)
+                        )
+                    }.filter { it.vector.isNotEmpty() }
+
+                    if (indexedChunks.isEmpty()) {
+                        throw IllegalStateException("تعذر إنشاء متجهات صالحة لهذا المستند.")
+                    }
+
+                    embeddingStore.saveIndex(document.id, indexedChunks)
+                }
+                setStatusSuccess("تم إنشاء الفهرس الدلالي")
+            } catch (error: EmbeddingEngine.UnsupportedEmbeddingModelException) {
+                setStatusError(error.message ?: "تعذر إنشاء الفهرس الدلالي.")
+            } catch (error: IllegalStateException) {
+                setStatusError(error.message ?: "تعذر إنشاء الفهرس الدلالي.")
+            } catch (_: OutOfMemoryError) {
+                setStatusError("تعذر إنشاء الفهرس الدلالي بسبب حجم المستند.")
+            } catch (_: Exception) {
+                setStatusError("تعذر إنشاء الفهرس الدلالي الآن.")
             } finally {
                 isProcessingFile = false
                 updateButtons()
@@ -1568,11 +2124,24 @@ class MainActivity : AppCompatActivity() {
         return SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date(timestamp))
     }
 
+    private fun formatDateTime(timestamp: Long): String {
+        return SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+    }
+
     private fun formatDocumentSize(chars: Int): String {
         return when {
             chars >= 1_000_000 -> String.format(Locale.US, "%.1fM", chars / 1_000_000f)
             chars >= 1_000 -> String.format(Locale.US, "%.1fK", chars / 1_000f)
             else -> "$chars"
+        }
+    }
+
+    private fun formatStorageSize(bytes: Long): String {
+        return when {
+            bytes >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f GB", bytes / (1024f * 1024f * 1024f))
+            bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+            bytes >= 1024L -> String.format(Locale.US, "%.1f KB", bytes / 1024f)
+            else -> "$bytes B"
         }
     }
 
@@ -1603,22 +2172,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val MODEL_ID_E2B = "gemma_e2b"
+        private const val MODEL_ID_E4B = "gemma_e4b"
         private const val KEY_CHAT_HISTORY_TEXT = "chat_history_text"
         private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
+        private const val KEY_EMBEDDING_BACKEND = "embedding_backend"
         private const val MAX_DOCUMENT_CONTEXT_CHARS = 5_000
         private const val MAX_RETRIEVED_CHUNKS = 3
         private const val DOCUMENT_CHUNK_SIZE = 1_200
         private const val DOCUMENT_TEXT_LIMIT = 200_000
         private const val PROMPT_TEXT_LIMIT = 6_000
         private const val STREAM_UPDATE_MIN_CHARS = 48
+        private const val MAX_SEMANTIC_INDEX_CHUNKS = 300
         private const val MAX_DOCUMENT_SEARCH_RESULTS = 5
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
         private const val DEFAULT_PDF_TITLE = "ملف PDF"
+        private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
+        private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
+        private const val SEMANTIC_GENERATION_STATUS = "تم استخدام البحث الدلالي • جاري التوليد..."
+        private const val SEMANTIC_FALLBACK_GENERATION_STATUS =
+            "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
     }
 }
+
+private data class RagDiagnosticsData(
+    val ragModeLabel: String,
+    val embeddingBackendLabel: String,
+    val embeddingModelImported: Boolean,
+    val embeddingModelDisplayPath: String,
+    val selectedDocumentTitle: String,
+    val indexInfo: EmbeddingStore.EmbeddingIndexInfo?,
+    val lastState: String,
+    val canBuildIndex: Boolean
+)
+
+private data class DocumentRetrievalOutcome(
+    val chunks: List<RetrievedChunk> = emptyList(),
+    val generationStatus: String = "جاري التوليد..."
+)
+
+private data class DocumentContextResult(
+    val context: String?,
+    val generationStatus: String
+)
 
 private fun String.safeTruncate(maxChars: Int): String {
     return if (length <= maxChars) this else take(maxChars)
