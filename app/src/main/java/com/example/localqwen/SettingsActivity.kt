@@ -229,6 +229,14 @@ class SettingsActivity : AppCompatActivity() {
 
         addOptionRow(
             sectionApp,
+            "⧉",
+            "نسخ تقرير بيتا",
+            "معلومات الجهاز والنموذج والأداء بدون بياناتك الخاصة"
+        ) {
+            finishWithAction(ACTION_COPY_BETA_REPORT)
+        }
+        addOptionRow(
+            sectionApp,
             "؟",
             "حول نبض",
             "الإصدار: $appVersion"
@@ -375,6 +383,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_COPY_LAST_RESPONSE = "copy_last_response"
         const val ACTION_OPEN_CHAT_HISTORY = "open_chat_history"
         const val ACTION_OPEN_DOCUMENT_LIBRARY = "open_document_library"
+        const val ACTION_COPY_BETA_REPORT = "copy_beta_report"
         const val ACTION_ABOUT = "about"
 
         fun createIntent(

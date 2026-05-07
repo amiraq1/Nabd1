@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -524,6 +525,118 @@ class MainActivity : AppCompatActivity() {
         copyToClipboard("آخر رد", text)
         setStatusSuccess("تم نسخ آخر رد")
         Toast.makeText(this, "تم نسخ آخر رد", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyBetaReportToClipboard() {
+        scope.launch {
+            val report = withContext(Dispatchers.IO) { buildBetaReport() }
+            copyToClipboard("Nabd Beta Report", report)
+            setStatusSuccess("تم نسخ تقرير بيتا")
+            Toast.makeText(this@MainActivity, "تم نسخ تقرير بيتا", Toast.LENGTH_SHORT).show()
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("تم نسخ التقرير")
+                .setMessage("تم نسخ تقرير بيتا إلى الحافظة.")
+                .setPositiveButton("إغلاق", null)
+                .show()
+        }
+    }
+
+    private fun buildBetaReport(): String {
+        val packageInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
+        val versionName = packageInfo?.versionName ?: "غير معروف"
+        val versionCode = packageInfo?.let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                it.longVersionCode.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                it.versionCode.toString()
+            }
+        } ?: "غير معروف"
+
+        val deviceInfo = phoneToolManager.getDeviceInfo().content
+        val storageInfo = phoneToolManager.getStorageInfo().content
+        val batteryInfo = phoneToolManager.getBatteryStatus().content
+
+        val modelImported = modelManager.isModelImported(selectedModel.id)
+        val modelSizeBytes = modelManager.modelSizeBytes(selectedModel.id)
+        val modelSizeLabel = if (modelSizeBytes > 0L) formatStorageSize(modelSizeBytes) else "غير متاح"
+        val modelState = currentModelStatusLabel()
+        val engineReady = engine != null && conversation != null && loadedModelId == selectedModel.id
+
+        val ragMode = currentRagMode()
+        val embeddingBackend = currentEmbeddingBackend()
+        val embeddingImported = embeddingModelManager.isEmbeddingModelReady()
+        val embeddingSizeBytes = embeddingModelManager.modelSizeBytes()
+        val embeddingSizeLabel = if (embeddingSizeBytes > 0L) formatStorageSize(embeddingSizeBytes) else "غير متاح"
+        val selectedDocumentId = documentStore.getSelectedDocumentId()
+        val selectedDocument = documentStore.getDocument(selectedDocumentId)
+        val indexInfo = selectedDocumentId?.let { embeddingStore.getIndexInfo(it) }
+
+        val chatSessionsCount = chatSessionStore.getAllSessions().size
+        val documentsCount = countSavedDocuments()
+        val embeddingIndexesCount = embeddingStore.countIndexes()
+
+        return buildString {
+            appendLine("تقرير بيتا - نبض")
+            appendLine("التاريخ: ${formatDateTime(System.currentTimeMillis())}")
+            appendLine("الإصدار: $versionName")
+            appendLine("رقم الإصدار: $versionCode")
+            appendLine("Build type: غير متاح")
+            appendLine()
+            appendLine("معلومات الجهاز:")
+            appendLine(deviceInfo)
+            appendLine(storageInfo)
+            appendLine(batteryInfo)
+            appendLine()
+            appendLine("معلومات النموذج:")
+            appendLine(
+                "النموذج المحدد: ${
+                    when (selectedModel.id) {
+                        MODEL_ID_E2B -> "Gemma E2B"
+                        MODEL_ID_E4B -> "Gemma E4B"
+                        else -> selectedModel.displayName
+                    }
+                }"
+            )
+            appendLine("النموذج مستورد: ${yesNo(modelImported)}")
+            appendLine("حجم النموذج: $modelSizeLabel")
+            appendLine("حالة النموذج: $modelState")
+            appendLine("Engine: ${if (engineReady) "جاهز" else "غير جاهز"}")
+            appendLine("Backend: CPU")
+            appendLine("آخر زمن أول رد: ${lastFirstTokenLatencyMs?.let { "${it}ms" } ?: "غير متاح بعد"}")
+            appendLine("آخر مدة توليد: ${lastGenerationDurationMs?.let { "${it}ms" } ?: "غير متاح بعد"}")
+            appendLine("آخر عدد أحرف الرد: ${if (lastResponseCharCount > 0) lastResponseCharCount else "غير متاح بعد"}")
+            appendLine()
+            appendLine("معلومات RAG:")
+            appendLine("وضع RAG: ${ragMode.name.lowercase(Locale.US)}")
+            appendLine("محرك التضمين: ${embeddingBackend.name.lowercase(Locale.US)}")
+            appendLine("نموذج التضمين مستورد: ${yesNo(embeddingImported)}")
+            appendLine("حجم نموذج التضمين: $embeddingSizeLabel")
+            appendLine("نموذج التضمين: files/${EmbeddingModelManager.EMBEDDING_MODEL_RELATIVE_PATH}")
+            appendLine("مستند محدد: ${yesNo(selectedDocument != null)}")
+            if (selectedDocument != null) {
+                appendLine("عنوان المستند المحدد: ${selectedDocument.title}")
+            }
+            appendLine("الفهرس الدلالي للمستند المحدد: ${yesNo(indexInfo != null)}")
+            appendLine("عدد المقاطع المفهرسة: ${indexInfo?.chunkCount ?: 0}")
+            appendLine()
+            appendLine("إحصاءات التخزين المحلي:")
+            appendLine("عدد المحادثات: $chatSessionsCount")
+            appendLine("عدد المستندات المحفوظة: $documentsCount")
+            appendLine("عدد الفهارس الدلالية: $embeddingIndexesCount")
+            appendLine()
+            append("هذا التقرير لا يحتوي على نصوص المحادثات أو محتوى المستندات.")
+        }
+    }
+
+    private fun countSavedDocuments(): Int {
+        val raw = preferences.getString(DocumentStore.KEY_LOCAL_DOCUMENTS_JSON, null).orEmpty()
+        if (raw.isBlank()) return 0
+        return runCatching { JSONArray(raw).length() }.getOrElse { documentStore.getDocuments().size }
+    }
+
+    private fun yesNo(value: Boolean): String {
+        return if (value) "نعم" else "لا"
     }
 
     private fun getDisplayName(uri: Uri): String? {
@@ -1655,6 +1768,7 @@ class MainActivity : AppCompatActivity() {
                 val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
                 updateEmbeddingBackend(value)
             }
+            SettingsActivity.ACTION_COPY_BETA_REPORT -> copyBetaReportToClipboard()
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
                 saveActiveSessionDebounced(immediate = true)
