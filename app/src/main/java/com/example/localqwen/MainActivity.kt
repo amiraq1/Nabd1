@@ -1051,59 +1051,94 @@ class MainActivity : AppCompatActivity() {
 
         val subtitleView = sheet.findViewById<TextView>(R.id.tvOptionsSubtitle)
         val statusChip = sheet.findViewById<TextView>(R.id.tvStatusChip)
-        subtitleView.text = modelDescription(selectedModel)
-        val isModelActive = engine != null && loadedModelId == selectedModel.id
-        val isModelImported = modelManager.isModelReady(selectedModel)
-        statusChip.text = when {
-            isModelActive -> "مشغّل"
-            isModelImported -> "جاهز"
-            else -> "غير مستورد"
+        val currentModelNameView = sheet.findViewById<TextView>(R.id.tvCurrentModelName)
+        subtitleView.text = "مساعد ذكاء اصطناعي محلي"
+        currentModelNameView.text = when (selectedModel.id) {
+            MODEL_ID_E2B -> "Gemma E2B"
+            MODEL_ID_E4B -> "Gemma E4B"
+            else -> selectedModel.displayName
         }
-        if (isModelImported) {
-            statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_ready)
-            statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_success))
-        } else {
-            statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_inactive)
-            statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_text_secondary))
+        val isModelActive = engine != null && loadedModelId == selectedModel.id
+        val isModelLoading = isLoadingModel
+        statusChip.text = when {
+            isModelLoading -> "جاري التشغيل"
+            isModelActive -> "مشغّل"
+            else -> "غير مشغّل"
+        }
+        when {
+            isModelLoading -> {
+                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_loading)
+                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_accent))
+            }
+            isModelActive -> {
+                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_ready)
+                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_success))
+            }
+            else -> {
+                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_inactive)
+                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_text_secondary))
+            }
         }
 
         addOptionRow(
             sheet.findViewById(R.id.sectionModel),
             if (isModelActive) "■" else "▶",
             if (isModelActive) "إيقاف نبض" else "تشغيل نبض",
-            subtitle = currentModelStatusLabel()
+            subtitle = "تشغيل أو إيقاف النموذج الحالي"
         ) {
             dialog.dismiss()
             if (isModelActive) unloadModel() else loadModel()
         }
         addOptionRow(
-            sheet.findViewById(R.id.sectionTools),
+            sheet.findViewById(R.id.sectionModel),
+            "＋",
+            "إضافة ملف",
+            subtitle = "تحليل PDF أو صورة"
+        ) {
+            dialog.dismiss()
+            showAttachmentTypeDialog()
+        }
+        addOptionRow(
+            sheet.findViewById(R.id.sectionModel),
             "◈",
-            "مركز الأدوات"
+            "مركز الأدوات",
+            subtitle = "أدوات الهاتف والمستندات"
         ) {
             dialog.dismiss()
             showToolsCenter()
         }
-        addOptionRow(sheet.findViewById(R.id.sectionTools), "＋", "إضافة ملف") {
-            dialog.dismiss()
-            showAttachmentTypeDialog()
-        }
-        addOptionRow(sheet.findViewById(R.id.sectionTools), "≡", "الإعدادات") {
+        addOptionRow(
+            sheet.findViewById(R.id.sectionModel),
+            "≡",
+            "الإعدادات",
+            subtitle = "النماذج والبحث والمستندات"
+        ) {
             dialog.dismiss()
             openSettingsPage()
         }
-        addOptionRow(sheet.findViewById(R.id.sectionConversation), "＋", "محادثة جديدة") {
+        addOptionRow(
+            sheet.findViewById(R.id.sectionConversation),
+            "＋",
+            "محادثة جديدة",
+            subtitle = "بدء جلسة مستقلة"
+        ) {
             dialog.dismiss()
             startNewChat()
         }
-        addOptionRow(sheet.findViewById(R.id.sectionConversation), "◷", "سجل المحادثات") {
+        addOptionRow(
+            sheet.findViewById(R.id.sectionConversation),
+            "◷",
+            "سجل المحادثات",
+            subtitle = "فتح المحادثات السابقة"
+        ) {
             dialog.dismiss()
             showChatHistoryDialog()
         }
         addOptionRow(
             sheet.findViewById(R.id.sectionInfo),
             "؟",
-            "حول نبض"
+            "حول نبض",
+            subtitle = "معلومات التطبيق والنماذج"
         ) {
             dialog.dismiss()
             showAboutDialog()
@@ -1114,12 +1149,22 @@ class MainActivity : AppCompatActivity() {
                 dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return@setOnShowListener
             val behavior = BottomSheetBehavior.from(bottomSheet)
             val screenHeight = resources.displayMetrics.heightPixels
-            bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
-                height = (screenHeight * 0.72f).toInt()
-            }
-            behavior.peekHeight = (screenHeight * 0.60f).toInt()
+            behavior.skipCollapsed = false
+            behavior.isFitToContents = true
             behavior.state = BottomSheetBehavior.STATE_EXPANDED
             behavior.isDraggable = true
+            bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            bottomSheet.post {
+                val maxHeight = (screenHeight * 0.75f).toInt()
+                if (bottomSheet.height > maxHeight) {
+                    bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+                        height = maxHeight
+                    }
+                    bottomSheet.requestLayout()
+                }
+            }
         }
         dialog.show()
     }
@@ -1189,6 +1234,7 @@ class MainActivity : AppCompatActivity() {
                 alpha = if (enabled) 1.0f else 0.45f
             }
         }
+        row.findViewById<TextView>(R.id.tvOptionChevron).alpha = if (enabled) 1.0f else 0.45f
         row.alpha = if (enabled) 1.0f else 0.45f
         row.isEnabled = enabled
         row.setOnClickListener { if (enabled) onClick() }
