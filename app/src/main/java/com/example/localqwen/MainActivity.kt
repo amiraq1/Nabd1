@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var documentStore: DocumentStore
     private lateinit var chatSessionStore: ChatSessionStore
     private lateinit var phoneToolManager: PhoneToolManager
+    private lateinit var savedPlacesStore: com.example.localqwen.tools.SavedPlacesStore
     private lateinit var embeddingModelManager: EmbeddingModelManager
     private lateinit var embeddingEngine: EmbeddingEngine
     private lateinit var embeddingStore: EmbeddingStore
@@ -176,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         documentStore = DocumentStore(preferences, db)
         chatSessionStore = ChatSessionStore(preferences, db)
         phoneToolManager = PhoneToolManager(this)
+        savedPlacesStore = com.example.localqwen.tools.SavedPlacesStore(this)
         embeddingModelManager = EmbeddingModelManager(this)
         embeddingEngine = EmbeddingEngine(
             context = this,
@@ -1021,6 +1023,12 @@ class MainActivity : AppCompatActivity() {
         val input = inputView.text.toString().trim()
         if (input.isEmpty()) return
 
+        val mapIntent = com.example.localqwen.tools.MapToolRouter.detectMapIntent(input)
+        if (mapIntent != null) {
+            handleMapToolIntent(input, mapIntent)
+            return
+        }
+
         val toolIntents = PhoneToolRouter.detectToolIntents(input)
         if (toolIntents.isNotEmpty()) {
             showPhoneToolConfirmation(input, toolIntents)
@@ -1553,7 +1561,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showToolsCenter() {
-        val items = arrayOf("البطارية", "الجهاز", "المكتبة", "السجل")
+        val items = arrayOf("البطارية", "الجهاز", "المكتبة", "السجل", "فتح الخريطة", "الأماكن المحفوظة")
         MaterialAlertDialogBuilder(this)
             .setTitle("مركز الأدوات")
             .setItems(items) { _, which ->
@@ -1562,9 +1570,129 @@ class MainActivity : AppCompatActivity() {
                     1 -> appendToolResultToChat(phoneToolManager.getDeviceInfo())
                     2 -> showDocumentLibraryDialog()
                     3 -> showChatHistoryDialog()
+                    4 -> promptForMapSearch()
+                    5 -> showSavedPlacesDialog()
                 }
             }
             .show()
+    }
+
+    private fun promptForMapSearch() {
+        val input = EditText(this).apply {
+            hint = "ابحث عن مكان..."
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#A0A0A0"))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("فتح الخريطة")
+            .setView(input)
+            .setPositiveButton("بحث") { _, _ ->
+                val query = input.text.toString().trim()
+                if (query.isNotEmpty()) {
+                    openMapIntent(query)
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun handleMapToolIntent(input: String, intent: com.example.localqwen.tools.MapToolIntent) {
+        inputView.setText("")
+        addChatMessage(ChatMessage(role = Role.USER, text = input))
+
+        when (intent) {
+            is com.example.localqwen.tools.MapToolIntent.SearchMap -> {
+                val suggestion = "أستطيع فتح تطبيق الخرائط للبحث عن:\n${intent.query}\nسيتم فتح تطبيق الخرائط على جهازك."
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = suggestion))
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("فتح الخريطة؟")
+                    .setMessage(suggestion)
+                    .setPositiveButton("فتح الخريطة") { _, _ -> openMapIntent(intent.query) }
+                    .setNegativeButton("إلغاء", null)
+                    .show()
+            }
+            is com.example.localqwen.tools.MapToolIntent.RouteMap -> {
+                val suggestion = "أستطيع فتح تطبيق الخرائط لعرض المسار من ${intent.origin} إلى ${intent.destination}.\nسيتم فتح تطبيق الخرائط على جهازك."
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = suggestion))
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("عرض المسار؟")
+                    .setMessage(suggestion)
+                    .setPositiveButton("فتح الخريطة") { _, _ -> openRouteIntent(intent.origin, intent.destination) }
+                    .setNegativeButton("إلغاء", null)
+                    .show()
+            }
+            is com.example.localqwen.tools.MapToolIntent.SavePlace -> {
+                savedPlacesStore.savePlace(com.example.localqwen.tools.SavedPlace(intent.name, intent.query))
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم حفظ المكان '${intent.name}' بنجاح."))
+            }
+            is com.example.localqwen.tools.MapToolIntent.OpenSavedPlace -> {
+                val place = savedPlacesStore.getPlace(intent.name)
+                if (place != null) {
+                    val suggestion = "أستطيع فتح تطبيق الخرائط للبحث عن المكان المحفوظ '${place.name}' (${place.query}).\nسيتم فتح تطبيق الخرائط على جهازك."
+                    addChatMessage(ChatMessage(role = Role.ASSISTANT, text = suggestion))
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("فتح الخريطة؟")
+                        .setMessage(suggestion)
+                        .setPositiveButton("فتح الخريطة") { _, _ -> openMapIntent(place.query) }
+                        .setNegativeButton("إلغاء", null)
+                        .show()
+                } else {
+                    addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "عذراً، المكان '${intent.name}' غير محفوظ لديك."))
+                }
+            }
+            is com.example.localqwen.tools.MapToolIntent.DeleteSavedPlace -> {
+                savedPlacesStore.deletePlace(intent.name)
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم حذف المكان '${intent.name}' من الأماكن المحفوظة."))
+            }
+            is com.example.localqwen.tools.MapToolIntent.ListSavedPlaces -> {
+                val places = savedPlacesStore.getPlaces()
+                if (places.isEmpty()) {
+                    addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "قائمة الأماكن المحفوظة فارغة."))
+                } else {
+                    val list = places.joinToString("\n") { "- ${it.name}: ${it.query}" }
+                    addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "الأماكن المحفوظة لديك:\n$list"))
+                }
+            }
+        }
+    }
+
+    private fun showSavedPlacesDialog() {
+        val places = savedPlacesStore.getPlaces()
+        if (places.isEmpty()) {
+            Toast.makeText(this, "لا توجد أماكن محفوظة", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val items = places.map { p: com.example.localqwen.tools.SavedPlace -> "${p.name} (${p.query})" }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("الأماكن المحفوظة")
+            .setItems(items) { _, which ->
+                openMapIntent(places[which].query)
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun openMapIntent(query: String) {
+        val encodedQuery = android.net.Uri.encode(query)
+        val uri = android.net.Uri.parse("geo:0,0?q=$encodedQuery")
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "لا يوجد تطبيق خرائط متاح.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openRouteIntent(origin: String, destination: String) {
+        val encodedOrigin = android.net.Uri.encode(origin)
+        val encodedDest = android.net.Uri.encode(destination)
+        val uri = android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$encodedOrigin&destination=$encodedDest")
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "لا يوجد تطبيق خرائط متاح.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun addOptionRow(
@@ -3427,6 +3555,20 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val options = arrayOf("استخراج النص من الصورة", "اسأل عن الصورة")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("إجراء الصورة")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> executeImageOcrAnalysis(uri)
+                    1 -> executeImageAskFlow(uri)
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun executeImageOcrAnalysis(uri: Uri) {
         isProcessingFile = true
         updateButtons()
         setStatusInfo("استخراج النص...")
@@ -3463,6 +3605,76 @@ class MainActivity : AppCompatActivity() {
                     )
                 } else {
                     setStatusError("لم يتم العثور على نص واضح.")
+                }
+            } catch (_: OutOfMemoryError) {
+                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+            } catch (_: Exception) {
+                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+            } finally {
+                isProcessingFile = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun executeImageAskFlow(uri: Uri) {
+        isProcessingFile = true
+        updateButtons()
+        setStatusInfo("استخراج النص...")
+
+        scope.launch {
+            try {
+                val extractedText = withContext(Dispatchers.IO) {
+                    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                    try {
+                        val result = recognizer.process(
+                            InputImage.fromFilePath(this@MainActivity, uri)
+                        ).awaitTask()
+                        result.text.trim()
+                    } finally {
+                        recognizer.close()
+                    }
+                }
+
+                if (extractedText.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        saveExtractedDocument(getDisplayName(uri) ?: "صورة", "image", extractedText)
+                    }
+                    setStatusSuccess("تم استخراج النص.")
+                    
+                    val input = EditText(this@MainActivity).apply {
+                        hint = "اكتب سؤالك عن النص الموجود في الصورة..."
+                        setTextColor(Color.WHITE)
+                        setHintTextColor(Color.parseColor("#A0A0A0"))
+                    }
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("اسأل عن الصورة")
+                        .setView(input)
+                        .setPositiveButton("إرسال") { _, _ ->
+                            val question = input.text.toString().trim()
+                            if (question.isNotEmpty()) {
+                                addChatMessage(ChatMessage(role = Role.USER, text = "سؤال عن صورة: $question"))
+                                val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
+                                addChatMessage(assistant)
+                                startAssistantGeneration(
+                                    NabdSystemPrompt.askImagePrompt(
+                                        question = question,
+                                        extractedText = extractedText.safeTruncate(PROMPT_TEXT_LIMIT)
+                                    ),
+                                    assistant,
+                                    "جاري الإجابة..."
+                                )
+                            }
+                        }
+                        .setNegativeButton("إلغاء", null)
+                        .show()
+                } else {
+                    setStatusError("لم يتم العثور على نص واضح في الصورة. الوصف البصري الكامل يحتاج نموذج رؤية غير متاح حاليًا.")
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("تنبيه")
+                        .setMessage("لم يتم العثور على نص واضح في الصورة. الوصف البصري الكامل يحتاج نموذج رؤية غير متاح حاليًا.")
+                        .setPositiveButton("حسناً", null)
+                        .show()
                 }
             } catch (_: OutOfMemoryError) {
                 setStatusError("الملف كبير جدًا للمعالجة الحالية.")

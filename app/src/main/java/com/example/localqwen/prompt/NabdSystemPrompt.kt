@@ -71,4 +71,22 @@ object NabdSystemPrompt {
             $extractedText
         """.trimIndent()
     }
+
+    fun askImagePrompt(question: String, extractedText: String): String {
+        return """
+            أنت "نبض"، مساعد ذكاء اصطناعي محلي.
+            أجب بالعربية بوضوح واختصار.
+            هذه نتيجة OCR من صورة، وليست وصفًا بصريًا كاملًا.
+            أجب اعتمادًا على النص المستخرج فقط.
+            إذا كان النص غير كافٍ، قل بوضوح:
+            "النص المستخرج من الصورة لا يحتوي على إجابة كافية."
+            لا تستخدم Markdown مبالغًا فيه.
+
+            النص المستخرج:
+            $extractedText
+
+            سؤال المستخدم:
+            $question
+        """.trimIndent()
+    }
 }
