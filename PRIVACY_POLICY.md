@@ -56,7 +56,17 @@
 - تنفيذ الأدوات يتم عندما تختار ذلك أو تؤكد التنفيذ.
 - يستخدم التطبيق Safe Agent Loop لتقليل التنفيذ غير المقصود.
 
-## 7) حذف البيانات
+## 7) أداة الخريطة
+
+- تتيح أداة الخريطة فتح تطبيق خرائط خارجي مثبت على جهاز المستخدم.
+- لا يطلب نبض صلاحية الموقع الجغرافي GPS.
+- لا يتتبع نبض موقع المستخدم.
+- لا يستخدم نبض Map SDK أو WebView داخلي للخرائط.
+- عند فتح الخريطة، يتم إرسال نص البحث أو المسار الذي أدخله المستخدم إلى تطبيق الخرائط الخارجي بعد موافقة المستخدم.
+- استخدام تطبيق الخرائط الخارجي يخضع لسياسة الخصوصية الخاصة بذلك التطبيق.
+- الأماكن المحفوظة داخل نبض يتم تخزينها محليًا على الجهاز، ويمكن حذفها من داخل التطبيق عند توفر خيار الحذف.
+
+## 8) حذف البيانات
 
 يمكنك حذف بياناتك من داخل التطبيق، بما في ذلك:
 
@@ -65,15 +75,16 @@
 - النماذج الرئيسية.
 - نموذج التضمين.
 - الفهارس الدلالية.
+- الأماكن المحفوظة على الخريطة.
 
 كما أن إزالة تثبيت التطبيق تؤدي عادةً إلى حذف بياناته الخاصة من الجهاز بحسب سلوك نظام Android وإعدادات الجهاز.
 
-## 8) القيود والتنبيه
+## 9) القيود والتنبيه
 
 - نبض حاليًا نسخة تجريبية (Beta) وقد تحتوي على أخطاء.
 - يُنصح بعدم إدخال أو استيراد ملفات حساسة جدًا إلا بعد فهمك لطريقة التخزين المحلي على جهازك.
 
-## 9) التواصل والدعم
+## 10) التواصل والدعم
 
 للتبليغ عن مشكلة أو طلب تحسين:
 
@@ -83,4 +94,4 @@ https://github.com/amiraq1/Nabd1/issues
 
 ## English (Short Version)
 
-Nabd is a local AI assistant for Android. Chat data, selected files (PDF/images), OCR text, local documents, and imported model files are processed and stored locally on the device. The app does not require a cloud account and does not intentionally upload chats/documents/OCR text to external servers. No ads tracking and no analytics are used in the app. Users can delete chats, documents, models, embedding model, and semantic indexes from app settings.
+Nabd is a local AI assistant for Android. Chat data, selected files (PDF/images), OCR text, local documents, and imported model files are processed and stored locally on the device. The app does not require a cloud account and does not intentionally upload chats/documents/OCR text to external servers. No ads tracking and no analytics are used in the app. Users can delete chats, documents, models, embedding model, and semantic indexes from app settings. The Map Tool uses external map apps via Intent and does not request location/GPS permission; user-entered queries/routes are only sent to the external app after user confirmation.
