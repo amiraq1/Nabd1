@@ -148,12 +148,6 @@ class MainActivity : AppCompatActivity() {
     private var lastFirstTokenLatencyMs: Long? = null
     private var lastGenerationDurationMs: Long? = null
 
-    @Volatile
-    private var engine: Engine? = null
-
-    @Volatile
-    private var conversation: Conversation? = null
-
     private var textInferenceEngine: com.example.localqwen.engine.NabdInferenceEngine? = null
 
     private var isLoadingModel = false
@@ -1044,7 +1038,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (engine == null || conversation == null || loadedModelId != selectedModel.id) {
+        if (textInferenceEngine?.isReady() != true || loadedModelId != selectedModel.id) {
             setStatusError("يرجى تشغيل نبض أولًا")
             return
         }
@@ -1351,26 +1345,8 @@ class MainActivity : AppCompatActivity() {
                 val newEngine = com.example.localqwen.engine.LiteRtLmInferenceEngine()
                 newEngine.load(modelManager.modelPath(requestModel), cacheDir.absolutePath)
                 
-                // TODO: Keep old initialization for now to avoid breaking other usages, will clean up gradually.
-                val loaded = withContext(Dispatchers.IO) {
-                    synchronized(modelLock) {
-                        closeModelResourcesLocked()
-                        val config = EngineConfig(
-                            modelPath = modelManager.modelPath(requestModel),
-                            cacheDir = cacheDir.absolutePath,
-                            backend = Backend.CPU()
-                        )
-                        val legacyEngine = Engine(config)
-                        legacyEngine.initialize()
-                        val legacyConversation = legacyEngine.createConversation()
-                        Triple(legacyEngine, legacyConversation, requestModel.id)
-                    }
-                }
-
-                engine = loaded.first
-                conversation = loaded.second
                 textInferenceEngine = newEngine
-                loadedModelId = loaded.third
+                loadedModelId = requestModel.id
                 localEngineLastErrorMessage = null
                 setStatusSuccess("تم تشغيل نبض")
             } catch (oom: OutOfMemoryError) {
@@ -1417,10 +1393,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeModelResourcesLocked() {
-        runCatching { conversation?.close() }
-        conversation = null
-        runCatching { engine?.close() }
-        engine = null
         runCatching { kotlinx.coroutines.runBlocking { textInferenceEngine?.unload() } }
         textInferenceEngine = null
         loadedModelId = null
@@ -2241,8 +2213,8 @@ class MainActivity : AppCompatActivity() {
             return LocalModelProbeResult(success = false, errorMessage = "يوجد توليد جارٍ. أعد الاختبار بعد الانتهاء.")
         }
 
-        val activeEngine = synchronized(modelLock) { engine }
-        if (textInferenceEngine?.isReady() != true || activeEngine == null || loadedModelId != selectedModel.id) {
+        val engine = textInferenceEngine
+        if (engine == null || !engine.isReady() || loadedModelId != selectedModel.id) {
             return LocalModelProbeResult(success = false, errorMessage = "النموذج الحالي غير جاهز للتشغيل.")
         }
 
@@ -2250,16 +2222,14 @@ class MainActivity : AppCompatActivity() {
             val startedAt = SystemClock.elapsedRealtime()
             var firstTokenLatencyMs: Long? = null
             val output = StringBuilder()
-            val probeConversation = runCatching { activeEngine.createConversation() }.getOrNull()
-                ?: return@withContext LocalModelProbeResult(success = false, errorMessage = "تعذر فتح جلسة اختبار.")
 
             try {
-                probeConversation.sendMessageAsync(prompt.safeTruncate(PROMPT_TEXT_LIMIT)).collect { chunk ->
+                engine.generate(prompt.safeTruncate(PROMPT_TEXT_LIMIT)).collect { chunk ->
                     if (firstTokenLatencyMs == null) {
                         firstTokenLatencyMs = SystemClock.elapsedRealtime() - startedAt
                     }
                     if (output.length < LOCAL_MODEL_TEST_MAX_OUTPUT_CHARS) {
-                        output.append(chunk.toString())
+                        output.append(chunk)
                     }
                 }
                 val finishedAt = SystemClock.elapsedRealtime()
@@ -2273,8 +2243,6 @@ class MainActivity : AppCompatActivity() {
                 LocalModelProbeResult(success = false, errorMessage = oom.message ?: "نفاد الذاكرة.")
             } catch (exception: Exception) {
                 LocalModelProbeResult(success = false, errorMessage = exception.message ?: "فشل الاختبار.")
-            } finally {
-                runCatching { probeConversation.close() }
             }
         }
     }
@@ -3612,7 +3580,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processImageUri(uri: Uri) {
-        if (engine == null) {
+        if (textInferenceEngine?.isReady() != true) {
             setStatusError("شغل نبض أولاً")
             return
         }
