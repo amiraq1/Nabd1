@@ -2,37 +2,34 @@ package com.example.localqwen.document
 
 import android.content.Context
 import android.content.SharedPreferences
-import org.json.JSONArray
-import org.json.JSONObject
+import com.example.localqwen.data.LocalDocumentEntity
+import com.example.localqwen.data.NabdDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class DocumentStore(
-    private val preferences: SharedPreferences
+    private val preferences: SharedPreferences,
+    private val db: NabdDatabase
 ) {
     constructor(context: Context) : this(
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE),
+        NabdDatabase.getInstance(context)
     )
 
-    fun getDocuments(): List<LocalDocument> {
-        val raw = preferences.getString(KEY_LOCAL_DOCUMENTS_JSON, null).orEmpty()
-        if (raw.isBlank()) return emptyList()
+    fun getDocuments(): List<LocalDocument> = runBlocking {
+        withContext(Dispatchers.IO) {
+            db.localDocumentDao().getAllDocuments().map { fromEntity(it) }
+        }
+    }
 
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.getJSONObject(index)
-                    add(
-                        LocalDocument(
-                            id = item.optString("id"),
-                            title = item.optString("title"),
-                            type = item.optString("type"),
-                            extractedText = item.optString("extractedText"),
-                            createdAt = item.optLong("createdAt", System.currentTimeMillis())
-                        )
-                    )
-                }
+    fun getDocument(documentId: String?): LocalDocument? {
+        if (documentId.isNullOrBlank()) return null
+        return runBlocking {
+            withContext(Dispatchers.IO) {
+                db.localDocumentDao().getDocument(documentId)?.let { fromEntity(it) }
             }
-        }.getOrDefault(emptyList())
+        }
     }
 
     fun saveDocument(document: LocalDocument) {
@@ -41,31 +38,27 @@ class DocumentStore(
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
             .truncateDocumentText(MAX_DOCUMENT_TEXT_CHARS)
+        
         if (normalizedText.isBlank()) return
+        
+        val newDocument = document.copy(extractedText = normalizedText)
 
-        val updated = getDocuments()
-            .filterNot { it.id == document.id }
-            .toMutableList()
-            .apply {
-                add(
-                    0,
-                    document.copy(extractedText = normalizedText)
-                )
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                db.localDocumentDao().insertOrUpdate(toEntity(newDocument))
             }
-        saveDocuments(updated)
-    }
-
-    fun deleteDocument(documentId: String) {
-        val updated = getDocuments().filterNot { it.id == documentId }
-        saveDocuments(updated)
-        if (getSelectedDocumentId() == documentId) {
-            clearSelectedDocumentId()
         }
     }
 
-    fun getDocument(documentId: String?): LocalDocument? {
-        if (documentId.isNullOrBlank()) return null
-        return getDocuments().firstOrNull { it.id == documentId }
+    fun deleteDocument(documentId: String) {
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                db.localDocumentDao().deleteById(documentId)
+            }
+        }
+        if (getSelectedDocumentId() == documentId) {
+            clearSelectedDocumentId()
+        }
     }
 
     fun setSelectedDocumentId(documentId: String?) {
@@ -80,26 +73,24 @@ class DocumentStore(
         preferences.edit().remove(KEY_SELECTED_DOCUMENT_ID).apply()
     }
 
-    private fun saveDocuments(documents: List<LocalDocument>) {
-        val array = JSONArray().apply {
-            documents.forEach { document ->
-                put(
-                    JSONObject()
-                        .put("id", document.id)
-                        .put("title", document.title)
-                        .put("type", document.type)
-                        .put("extractedText", document.extractedText)
-                        .put("createdAt", document.createdAt)
-                )
-            }
-        }
+    private fun toEntity(document: LocalDocument) = LocalDocumentEntity(
+        document.id,
+        document.title,
+        document.type,
+        document.extractedText,
+        document.createdAt
+    )
 
-        preferences.edit().putString(KEY_LOCAL_DOCUMENTS_JSON, array.toString()).apply()
-    }
+    private fun fromEntity(entity: LocalDocumentEntity) = LocalDocument(
+        entity.id,
+        entity.title,
+        entity.type,
+        entity.extractedText,
+        entity.createdAt
+    )
 
     companion object {
         const val PREFERENCES_NAME = "nabd_prefs"
-        const val KEY_LOCAL_DOCUMENTS_JSON = "local_documents_json"
         const val KEY_SELECTED_DOCUMENT_ID = "selected_document_id"
         private const val MAX_DOCUMENT_TEXT_CHARS = 200_000
     }

@@ -1,53 +1,46 @@
 package com.example.localqwen.chat
 
 import android.content.SharedPreferences
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
+import com.example.localqwen.data.ChatSessionEntity
+import com.example.localqwen.data.NabdDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
-class ChatSessionStore(private val prefs: SharedPreferences) {
+class ChatSessionStore(
+    private val prefs: SharedPreferences,
+    private val db: NabdDatabase
+) {
 
     companion object {
-        private const val KEY_SESSIONS = "chat_sessions_json"
         private const val KEY_ACTIVE_SESSION_ID = "active_chat_session_id"
     }
 
-    fun getAllSessions(): List<ChatSession> {
-        val json = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(json)
-            val sessions = mutableListOf<ChatSession>()
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                sessions.add(fromJson(obj))
+    fun getAllSessions(): List<ChatSession> = runBlocking {
+        withContext(Dispatchers.IO) {
+            db.chatSessionDao().getAllSessions().map { fromEntity(it) }
+        }
+    }
+
+    fun getSession(id: String): ChatSession? = runBlocking {
+        withContext(Dispatchers.IO) {
+            db.chatSessionDao().getSession(id)?.let { fromEntity(it) }
+        }
+    }
+
+    fun saveSession(session: ChatSession) = runBlocking {
+        withContext(Dispatchers.IO) {
+            db.chatSessionDao().insertOrUpdate(toEntity(session))
+        }
+    }
+
+    fun deleteSession(id: String) = runBlocking {
+        withContext(Dispatchers.IO) {
+            db.chatSessionDao().deleteById(id)
+            if (getActiveSessionId() == id) {
+                val sessions = db.chatSessionDao().getAllSessions()
+                setActiveSessionId(sessions.firstOrNull()?.id)
             }
-            sessions.sortedByDescending { it.updatedAt }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    fun getSession(id: String): ChatSession? {
-        return getAllSessions().find { it.id == id }
-    }
-
-    fun saveSession(session: ChatSession) {
-        val sessions = getAllSessions().toMutableList()
-        val index = sessions.indexOfFirst { it.id == session.id }
-        if (index != -1) {
-            sessions[index] = session
-        } else {
-            sessions.add(session)
-        }
-        persist(sessions)
-    }
-
-    fun deleteSession(id: String) {
-        val sessions = getAllSessions().toMutableList()
-        sessions.removeAll { it.id == id }
-        persist(sessions)
-        if (getActiveSessionId() == id) {
-            setActiveSessionId(sessions.firstOrNull()?.id)
         }
     }
 
@@ -105,35 +98,25 @@ class ChatSessionStore(private val prefs: SharedPreferences) {
         saveSession(session)
     }
 
-    private fun persist(sessions: List<ChatSession>) {
-        val array = JSONArray()
-        sessions.forEach { array.put(toJson(it)) }
-        prefs.edit().putString(KEY_SESSIONS, array.toString()).apply()
-    }
+    private fun toEntity(session: ChatSession) = ChatSessionEntity(
+        session.id,
+        session.title,
+        session.createdAt,
+        session.updatedAt,
+        session.messagesJson,
+        session.lastAssistantResponse,
+        session.selectedDocumentId,
+        session.documentAnswerLength
+    )
 
-    private fun toJson(session: ChatSession): JSONObject {
-        return JSONObject().apply {
-            put("id", session.id)
-            put("title", session.title)
-            put("createdAt", session.createdAt)
-            put("updatedAt", session.updatedAt)
-            put("messagesJson", session.messagesJson)
-            put("lastAssistantResponse", session.lastAssistantResponse)
-            put("selectedDocumentId", session.selectedDocumentId)
-            put("documentAnswerLength", session.documentAnswerLength)
-        }
-    }
-
-    private fun fromJson(obj: JSONObject): ChatSession {
-        return ChatSession(
-            id = obj.getString("id"),
-            title = obj.getString("title"),
-            createdAt = obj.getLong("createdAt"),
-            updatedAt = obj.getLong("updatedAt"),
-            messagesJson = obj.optString("messagesJson", "[]"),
-            lastAssistantResponse = obj.optString("lastAssistantResponse", ""),
-            selectedDocumentId = obj.optString("selectedDocumentId", null).takeIf { it != "null" },
-            documentAnswerLength = obj.optString("documentAnswerLength", "short")
-        )
-    }
+    private fun fromEntity(entity: ChatSessionEntity) = ChatSession(
+        entity.id,
+        entity.title,
+        entity.createdAt,
+        entity.updatedAt,
+        entity.messagesText,
+        entity.lastAssistantResponse ?: "",
+        entity.selectedDocumentId,
+        entity.documentAnswerLength
+    )
 }
