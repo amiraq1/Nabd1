@@ -154,6 +154,8 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var conversation: Conversation? = null
 
+    private var textInferenceEngine: com.example.localqwen.engine.NabdInferenceEngine? = null
+
     private var isLoadingModel = false
     private var isGenerating = false
     private var isProcessingFile = false
@@ -455,7 +457,7 @@ class MainActivity : AppCompatActivity() {
     private fun currentStatus(): String {
         val session = chatSessionStore.getActiveOrCreateSession()
         val base = when {
-            engine != null && loadedModelId == selectedModel.id -> "جاهز • ${selectedModel.displayName}"
+            textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "جاهز • ${selectedModel.displayName}"
             modelManager.isModelReady(selectedModel) -> "غير مشغّل • ${selectedModel.displayName}"
             else -> "غير مستورد • ${selectedModel.displayName}"
         }
@@ -465,7 +467,7 @@ class MainActivity : AppCompatActivity() {
     private fun currentModelStatusLabel(): String {
         return when {
             isLoadingModel -> "جاري التشغيل"
-            engine != null && loadedModelId == selectedModel.id -> "مشغّل"
+            textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "مشغّل"
             modelManager.isModelReady(selectedModel) -> "غير مشغّل"
             else -> "غير مستورد"
         }
@@ -758,7 +760,7 @@ class MainActivity : AppCompatActivity() {
         val modelSizeBytes = modelManager.modelSizeBytes(selectedModel.id)
         val modelSizeLabel = if (modelSizeBytes > 0L) formatStorageSize(modelSizeBytes) else "غير متاح"
         val modelState = currentModelStatusLabel()
-        val engineReady = engine != null && conversation != null && loadedModelId == selectedModel.id
+        val engineReady = textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id
 
         val ragMode = currentRagMode()
         val embeddingBackend = currentEmbeddingBackend()
@@ -1192,8 +1194,8 @@ class MainActivity : AppCompatActivity() {
         preserveMarkdownOutput: Boolean = true,
         renderMarkdownOutput: Boolean = true
     ) {
-        val currentConversation = conversation
-        if (currentConversation == null) {
+        val engine = textInferenceEngine
+        if (engine == null || !engine.isReady()) {
             setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
             return
         }
@@ -1210,16 +1212,16 @@ class MainActivity : AppCompatActivity() {
 
         scope.launch {
             try {
-                val output = StringBuilder()
+                val output = java.lang.StringBuilder()
                 var lastRenderedRawLength = 0
                 var firstChunkCaptured = false
                 withContext(Dispatchers.IO) {
-                    currentConversation.sendMessageAsync(prompt).collect { chunk ->
+                    engine.generate(prompt).collect { chunk ->
                         if (!firstChunkCaptured) {
                             firstChunkCaptured = true
                             lastFirstTokenLatencyMs = SystemClock.elapsedRealtime() - generationStartedAt
                         }
-                        output.append(chunk.toString())
+                        output.append(chunk)
                         val shouldRefresh =
                             output.length <= 256 || output.length - lastRenderedRawLength >= STREAM_UPDATE_MIN_CHARS
                         if (shouldRefresh) {
@@ -1333,7 +1335,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (isLoadingModel) return
-        if (loadedModelId == selectedModel.id && engine != null && conversation != null) {
+        if (loadedModelId == selectedModel.id && textInferenceEngine?.isReady() == true) {
             setStatusSuccess("تم تشغيل نبض")
             return
         }
@@ -1345,6 +1347,11 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val requestModel = selectedModel
+                
+                val newEngine = com.example.localqwen.engine.LiteRtLmInferenceEngine()
+                newEngine.load(modelManager.modelPath(requestModel), cacheDir.absolutePath)
+                
+                // TODO: Keep old initialization for now to avoid breaking other usages, will clean up gradually.
                 val loaded = withContext(Dispatchers.IO) {
                     synchronized(modelLock) {
                         closeModelResourcesLocked()
@@ -1353,15 +1360,16 @@ class MainActivity : AppCompatActivity() {
                             cacheDir = cacheDir.absolutePath,
                             backend = Backend.CPU()
                         )
-                        val newEngine = Engine(config)
-                        newEngine.initialize()
-                        val newConversation = newEngine.createConversation()
-                        Triple(newEngine, newConversation, requestModel.id)
+                        val legacyEngine = Engine(config)
+                        legacyEngine.initialize()
+                        val legacyConversation = legacyEngine.createConversation()
+                        Triple(legacyEngine, legacyConversation, requestModel.id)
                     }
                 }
 
                 engine = loaded.first
                 conversation = loaded.second
+                textInferenceEngine = newEngine
                 loadedModelId = loaded.third
                 localEngineLastErrorMessage = null
                 setStatusSuccess("تم تشغيل نبض")
@@ -1413,6 +1421,8 @@ class MainActivity : AppCompatActivity() {
         conversation = null
         runCatching { engine?.close() }
         engine = null
+        runCatching { kotlinx.coroutines.runBlocking { textInferenceEngine?.unload() } }
+        textInferenceEngine = null
         loadedModelId = null
     }
 
@@ -1430,7 +1440,7 @@ class MainActivity : AppCompatActivity() {
             MODEL_ID_E4B -> "Gemma E4B"
             else -> selectedModel.displayName
         }
-        val isModelActive = engine != null && loadedModelId == selectedModel.id
+        val isModelActive = textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id
         val isModelLoading = isLoadingModel
         statusChip.text = when {
             isModelLoading -> "جاري التشغيل"
@@ -1813,7 +1823,7 @@ class MainActivity : AppCompatActivity() {
     private fun buildLiteRtDiagnosticsData(): LiteRtDiagnosticsData {
         val modelFile = modelManager.getModelFile(selectedModel.id)
         val modelSizeBytes = modelManager.modelSizeBytes(selectedModel.id)
-        val engineReady = engine != null && conversation != null && loadedModelId == selectedModel.id
+        val engineReady = textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id
         val backendLabel = "CPU"
 
         return LiteRtDiagnosticsData(
@@ -2071,7 +2081,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val canRunInferenceTests = !isLoadingModel && !isGenerating && loadedModelId == selectedModel.id &&
-            engine != null && conversation != null
+            textInferenceEngine?.isReady() == true
         val isQuickTestRunning = localModelManagerQuickTestJob?.isActive == true
 
         val shortTestButton = Button(this).apply {
@@ -2138,7 +2148,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun localModelStatusLabel(): String {
-        if (engine != null && conversation != null && loadedModelId == selectedModel.id) return "جاهز"
+        if (textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id) return "جاهز"
         if (localEngineLastErrorMessage != null && !isLoadingModel) return "خطأ"
         return "غير محمّل"
     }
@@ -2146,7 +2156,7 @@ class MainActivity : AppCompatActivity() {
     private fun localEngineStateLabel(): String {
         return when {
             isLoadingModel -> "يتم التحميل"
-            engine != null && conversation != null && loadedModelId == selectedModel.id -> "جاهز"
+            textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "جاهز"
             !localEngineLastErrorMessage.isNullOrBlank() -> "فشل التحميل"
             else -> "غير محمّل"
         }
@@ -2232,7 +2242,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val activeEngine = synchronized(modelLock) { engine }
-        if (activeEngine == null || conversation == null || loadedModelId != selectedModel.id) {
+        if (textInferenceEngine?.isReady() != true || activeEngine == null || loadedModelId != selectedModel.id) {
             return LocalModelProbeResult(success = false, errorMessage = "النموذج الحالي غير جاهز للتشغيل.")
         }
 
