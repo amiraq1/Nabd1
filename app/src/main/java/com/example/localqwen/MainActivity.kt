@@ -3708,30 +3708,16 @@ class MainActivity : AppCompatActivity() {
                             }
                             
                             val visionFile = modelManager.getModelFile(ModelManager.VISION_MODEL.id) ?: throw Exception("Vision model not found")
-                            var visionEngine: Engine? = null
-                            var visionConversation: Conversation? = null
+                            val visionEngine = com.example.localqwen.engine.LiteRtLmInferenceEngine()
                             try {
-                                withContext(Dispatchers.IO) {
-                                    val config = EngineConfig(
-                                        modelPath = visionFile.absolutePath,
-                                        cacheDir = cacheDir.absolutePath,
-                                        backend = Backend.CPU()
-                                    )
-                                    visionEngine = Engine(config)
-                                    visionEngine!!.initialize()
-                                    visionConversation = visionEngine!!.createConversation()
-                                }
+                                visionEngine.load(visionFile.absolutePath, cacheDir.absolutePath)
                                 val promptText = "${NabdSystemPrompt.baseIdentityPrompt()}\nأجب بالعربية بوضوح واختصار. أنت ترى هذه الصورة. إذا لم تتأكد من الفهم، قل ذلك بصراحة.\n\nسؤال: $question"
                                 
                                 val output = StringBuilder()
                                 var lastRenderedRawLength = 0
                                 withContext(Dispatchers.IO) {
-                                    val messageContent = com.google.ai.edge.litertlm.Contents.of(
-                                        com.google.ai.edge.litertlm.Content.ImageFile(tempFile.absolutePath),
-                                        com.google.ai.edge.litertlm.Content.Text(promptText)
-                                    )
-                                    visionConversation!!.sendMessageAsync(messageContent).collect { chunk ->
-                                        output.append(chunk.toString())
+                                    visionEngine.generateVision(tempFile.absolutePath, promptText).collect { chunk ->
+                                        output.append(chunk)
                                         val shouldRefresh = output.length <= 256 || output.length - lastRenderedRawLength >= STREAM_UPDATE_MIN_CHARS
                                         if (shouldRefresh) {
                                             val snapshot = output.toString()
@@ -3760,8 +3746,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             } finally {
                                 withContext(Dispatchers.IO) {
-                                    visionConversation?.close()
-                                    visionEngine?.close()
+                                    visionEngine.unload()
                                     tempFile.delete()
                                 }
                             }
