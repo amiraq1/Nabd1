@@ -23,6 +23,7 @@ class SettingsActivity : AppCompatActivity() {
     private var currentModelStatus: String = ""
     private var currentModelE2bStatus: String = ""
     private var currentModelE4bStatus: String = ""
+    private var currentModelVisionStatus: String = ""
     private var currentDocumentAnswerLength: String = "short"
     private var currentRagSearchMode: String = "auto"
     private var currentEmbeddingBackend: String = "auto"
@@ -109,6 +110,20 @@ class SettingsActivity : AppCompatActivity() {
             currentModelE4bStatus.ifBlank { "غير مستورد" }
         ) {
             finishWithAction(ACTION_MANAGE_MODEL_E4B)
+        }
+        
+        val visionIcon = if (currentModelVisionStatus.startsWith("مستورد")) "V" else "⇩"
+        addOptionRow(
+            sectionModel,
+            visionIcon,
+            "FastVLM 0.5B (نموذج الرؤية)",
+            currentModelVisionStatus.ifBlank { "غير مستورد" }
+        ) {
+            if (currentModelVisionStatus.startsWith("مستورد")) {
+                finishWithAction(ACTION_DELETE_VISION_MODEL)
+            } else {
+                finishWithAction(ACTION_IMPORT_VISION_MODEL)
+            }
         }
         addOptionRow(
             sectionModel,
@@ -384,6 +399,8 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_IMPORT_MODEL = "import_model"
         const val ACTION_MANAGE_MODEL_E2B = "manage_model_e2b"
         const val ACTION_MANAGE_MODEL_E4B = "manage_model_e4b"
+        const val ACTION_IMPORT_VISION_MODEL = "import_vision_model"
+        const val ACTION_DELETE_VISION_MODEL = "delete_vision_model"
         const val ACTION_LITERT_DIAGNOSTICS = "litert_diagnostics"
         const val ACTION_IMPORT_EMBEDDING_MODEL = "import_embedding_model"
         const val ACTION_DELETE_EMBEDDING_MODEL = "delete_embedding_model"

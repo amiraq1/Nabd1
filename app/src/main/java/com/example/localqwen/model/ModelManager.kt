@@ -12,6 +12,13 @@ class ModelManager(private val context: Context) {
     )
 
     companion object {
+        val VISION_MODEL = SupportedModel(
+            id = "fastvlm_0_5b",
+            displayName = "FastVLM 0.5B",
+            fileName = "fastvlm.litertlm",
+            description = "نموذج رؤية اختياري لتحليل الصور"
+        )
+
         val SUPPORTED_MODELS = listOf(
             SupportedModel(
                 id = "gemma_e2b",
@@ -38,6 +45,7 @@ class ModelManager(private val context: Context) {
     }
 
     fun getModelById(modelId: String): SupportedModel? {
+        if (modelId == VISION_MODEL.id) return VISION_MODEL
         return SUPPORTED_MODELS.firstOrNull { it.id == modelId }
     }
 

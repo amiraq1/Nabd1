@@ -14,7 +14,7 @@
 - النصوص المستخرجة من OCR.
 - المستندات المحلية المحفوظة داخل التطبيق.
 - بيانات البحث في المستندات (RAG) والفهارس الدلالية عند تفعيلها.
-- ملفات النماذج التي تستوردها أنت يدويًا (`.litertlm` ونموذج التضمين `.tflite`).
+- ملفات النماذج التي تستوردها أنت يدويًا (`.litertlm` ونموذج التضمين `.tflite` ونموذج الرؤية الاختياري).
 - معلومات جهاز محدودة عبر أدوات الهاتف (مثل البطارية، معلومات الجهاز، التخزين، وعدد التطبيقات المثبتة) فقط عند طلبك أو تأكيدك.
 
 ## 2) أين تُخزَّن البيانات؟
@@ -95,3 +95,4 @@ https://github.com/amiraq1/Nabd1/issues
 ## English (Short Version)
 
 Nabd is a local AI assistant for Android. Chat data, selected files (PDF/images), OCR text, local documents, and imported model files are processed and stored locally on the device. The app does not require a cloud account and does not intentionally upload chats/documents/OCR text to external servers. No ads tracking and no analytics are used in the app. Users can delete chats, documents, models, embedding model, and semantic indexes from app settings. The Map Tool uses external map apps via Intent and does not request location/GPS permission; user-entered queries/routes are only sent to the external app after user confirmation.
+ent and does not request location/GPS permission; user-entered queries/routes are only sent to the external app after user confirmation.

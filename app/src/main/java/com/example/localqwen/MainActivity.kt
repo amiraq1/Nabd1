@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private val pickPdfRequestCode = 202
     private val settingsRequestCode = 203
     private val pickEmbeddingModelRequestCode = 204
+    private val pickVisionModelRequestCode = 205
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val chatMessages = mutableListOf<ChatMessage>()
     private val supportedModels = ModelManager.SUPPORTED_MODELS
@@ -2754,6 +2755,8 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_IMPORT_MODEL -> openFilePicker()
             SettingsActivity.ACTION_MANAGE_MODEL_E2B -> showMainModelManagementDialog(modelById(MODEL_ID_E2B))
             SettingsActivity.ACTION_MANAGE_MODEL_E4B -> showMainModelManagementDialog(modelById(MODEL_ID_E4B))
+            SettingsActivity.ACTION_IMPORT_VISION_MODEL -> openVisionModelPicker()
+            SettingsActivity.ACTION_DELETE_VISION_MODEL -> confirmDeleteVisionModel()
             SettingsActivity.ACTION_LITERT_DIAGNOSTICS -> showLiteRtDiagnosticsDialog()
             SettingsActivity.ACTION_IMPORT_EMBEDDING_MODEL -> openEmbeddingModelPicker()
             SettingsActivity.ACTION_DELETE_EMBEDDING_MODEL -> confirmDeleteEmbeddingModel()
@@ -2980,6 +2983,28 @@ class MainActivity : AppCompatActivity() {
             },
             pickModelRequestCode
         )
+    }
+
+    private fun openVisionModelPicker() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            },
+            pickVisionModelRequestCode
+        )
+    }
+
+    private fun confirmDeleteVisionModel() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حذف نموذج الرؤية؟")
+            .setMessage("هل أنت متأكد من حذف نموذج الرؤية المحلي؟ سيتم الرجوع إلى البحث النصي OCR.")
+            .setPositiveButton("حذف") { _, _ ->
+                modelManager.deleteModel(ModelManager.VISION_MODEL)
+                setStatusSuccess("تم حذف نموذج الرؤية")
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
     }
 
     private fun openEmbeddingModelPicker() {
@@ -3339,6 +3364,33 @@ class MainActivity : AppCompatActivity() {
         } ?: throw IOException("Unable to open model stream")
     }
 
+    private suspend fun importVisionModelFile(uri: Uri) {
+        contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+            modelManager.modelFile(ModelManager.VISION_MODEL).outputStream().buffered().use { output ->
+                input.copyTo(output, DEFAULT_COPY_BUFFER_SIZE)
+            }
+        } ?: throw IOException("Unable to open model stream")
+    }
+
+    private fun importVisionModelFromUri(uri: Uri) {
+        scope.launch {
+            isLoadingModel = true
+            updateButtons()
+            setStatusInfo("جاري استيراد نموذج الرؤية...")
+            try {
+                withContext(Dispatchers.IO) { importVisionModelFile(uri) }
+                setStatusSuccess("تم استيراد نموذج الرؤية بنجاح")
+                delay(1000)
+                setStatusInfo(currentStatus())
+            } catch (_: Exception) {
+                setStatusError("فشل الاستيراد")
+            } finally {
+                isLoadingModel = false
+                updateButtons()
+            }
+        }
+    }
+
     private fun importModelFromUri(uri: Uri) {
         scope.launch {
             isLoadingModel = true
@@ -3618,6 +3670,115 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun executeImageAskFlow(uri: Uri) {
+        if (modelManager.isModelImported(ModelManager.VISION_MODEL.id)) {
+            executeImageAskVisionFlow(uri)
+        } else {
+            executeImageAskOcrFlow(uri)
+        }
+    }
+
+    private fun executeImageAskVisionFlow(uri: Uri) {
+        val input = EditText(this@MainActivity).apply {
+            hint = "اكتب سؤالك عن الصورة..."
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#A0A0A0"))
+        }
+        MaterialAlertDialogBuilder(this@MainActivity)
+            .setTitle("اسأل عن الصورة")
+            .setView(input)
+            .setPositiveButton("إرسال") { _, _ ->
+                val question = input.text.toString().trim()
+                if (question.isNotEmpty()) {
+                    isProcessingFile = true
+                    updateButtons()
+                    setStatusInfo("جاري تحليل الصورة بنموذج الرؤية...")
+                    addChatMessage(ChatMessage(role = Role.USER, text = "سؤال عن صورة: $question"))
+                    val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
+                    addChatMessage(assistant)
+                    chatAdapter.markLastAssistantStreaming()
+                    scope.launch {
+                        try {
+                            val tempFile = java.io.File(cacheDir, "vision_temp_image.jpg")
+                            withContext(Dispatchers.IO) {
+                                contentResolver.openInputStream(uri)?.use { inputStream ->
+                                    tempFile.outputStream().use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
+                                }
+                            }
+                            
+                            val visionFile = modelManager.getModelFile(ModelManager.VISION_MODEL.id) ?: throw Exception("Vision model not found")
+                            var visionEngine: Engine? = null
+                            var visionConversation: Conversation? = null
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val config = EngineConfig(
+                                        modelPath = visionFile.absolutePath,
+                                        cacheDir = cacheDir.absolutePath,
+                                        backend = Backend.CPU()
+                                    )
+                                    visionEngine = Engine(config)
+                                    visionEngine!!.initialize()
+                                    visionConversation = visionEngine!!.createConversation()
+                                }
+                                val promptText = "${NabdSystemPrompt.baseIdentityPrompt()}\nأجب بالعربية بوضوح واختصار. أنت ترى هذه الصورة. إذا لم تتأكد من الفهم، قل ذلك بصراحة.\n\nسؤال: $question"
+                                
+                                val output = StringBuilder()
+                                var lastRenderedRawLength = 0
+                                withContext(Dispatchers.IO) {
+                                    val messageContent = com.google.ai.edge.litertlm.Contents.of(
+                                        com.google.ai.edge.litertlm.Content.ImageFile(tempFile.absolutePath),
+                                        com.google.ai.edge.litertlm.Content.Text(promptText)
+                                    )
+                                    visionConversation!!.sendMessageAsync(messageContent).collect { chunk ->
+                                        output.append(chunk.toString())
+                                        val shouldRefresh = output.length <= 256 || output.length - lastRenderedRawLength >= STREAM_UPDATE_MIN_CHARS
+                                        if (shouldRefresh) {
+                                            val snapshot = output.toString()
+                                            lastRenderedRawLength = output.length
+                                            withContext(Dispatchers.Main) {
+                                                val cleanedSnapshot = cleanForDisplay(snapshot, preserveMarkdown = true)
+                                                assistant.text = cleanedSnapshot
+                                                updateAssistantMessage(cleanedSnapshot, preserveMarkdown = true, renderMarkdown = false)
+                                            }
+                                        }
+                                    }
+                                }
+                                val finalText = cleanForDisplay(output.toString(), preserveMarkdown = true).ifBlank { "(فارغ)" }
+                                assistant.text = finalText
+                                lastAssistantResponse = finalText
+                                updateAssistantMessage(finalText, forceScroll = true, preserveMarkdown = true, renderMarkdown = true)
+                                setStatusSuccess("تم التحليل بنموذج الرؤية.")
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                setStatusError("تم استخدام OCR بدل نموذج الرؤية.")
+                                withContext(Dispatchers.Main) {
+                                    chatMessages.removeLast()
+                                    chatMessages.removeLast()
+                                    chatAdapter.notifyDataSetChanged()
+                                    executeImageAskOcrFlow(uri)
+                                }
+                            } finally {
+                                withContext(Dispatchers.IO) {
+                                    visionConversation?.close()
+                                    visionEngine?.close()
+                                    tempFile.delete()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            setStatusError("فشل معالجة الصورة.")
+                        } finally {
+                            isProcessingFile = false
+                            updateButtons()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun executeImageAskOcrFlow(uri: Uri) {
         isProcessingFile = true
         updateButtons()
         setStatusInfo("استخراج النص...")
@@ -3810,6 +3971,7 @@ class MainActivity : AppCompatActivity() {
         when (requestCode) {
             pickModelRequestCode -> importModelFromUri(uri)
             pickImageRequestCode -> processImageUri(uri)
+            pickVisionModelRequestCode -> importVisionModelFromUri(uri)
             pickEmbeddingModelRequestCode -> importEmbeddingModelFromUri(uri)
             pickPdfRequestCode -> {
                 tryPersistPdfReadPermission(uri)
@@ -3890,6 +4052,7 @@ private data class LocalModelProbeResult(
     val errorMessage: String? = null
 )
 
+
 private enum class LocalModelQuickTestType(val label: String) {
     SHORT_GENERATION("اختبار التوليد القصير"),
     MEMORY("اختبار الذاكرة"),
@@ -3897,7 +4060,7 @@ private enum class LocalModelQuickTestType(val label: String) {
 }
 
 private data class DocumentRetrievalOutcome(
-    val chunks: List<RetrievedChunk> = emptyList(),
+    val chunks: List<com.example.localqwen.rag.RetrievedChunk> = emptyList(),
     val generationStatus: String = "جاري التوليد..."
 )
 
