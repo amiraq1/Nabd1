@@ -469,13 +469,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentStatus(): String {
-        val sessionTitle = chatSessionStore.getActiveSessionId()?.let { "المحادثة الحالية" } ?: "محادثة جديدة"
-        val base = when {
-            textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "جاهز • ${selectedModel.displayName}"
-            modelManager.isModelReady(selectedModel) -> "غير مشغّل • ${selectedModel.displayName}"
-            else -> "غير مستورد • ${selectedModel.displayName}"
+        return when {
+            textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "${selectedModel.displayName} — جاهز"
+            modelManager.isModelReady(selectedModel) -> "${selectedModel.displayName} — غير مشغّل"
+            else -> "${selectedModel.displayName} — غير مستورد"
         }
-        return "$sessionTitle\n$base"
     }
 
     private fun currentModelStatusLabel(): String {
@@ -1505,7 +1503,7 @@ class MainActivity : AppCompatActivity() {
         val subtitleView = sheet.findViewById<TextView>(R.id.tvOptionsSubtitle)
         val statusChip = sheet.findViewById<TextView>(R.id.tvStatusChip)
         val currentModelNameView = sheet.findViewById<TextView>(R.id.tvCurrentModelName)
-        subtitleView.text = "مساعد ذكاء اصطناعي محلي"
+        subtitleView.text = "مساعد محلي"
         currentModelNameView.text = when (selectedModel.id) {
             MODEL_ID_E2B -> "Gemma E2B"
             MODEL_ID_E4B -> "Gemma E4B"
@@ -1871,7 +1869,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage(
                 """
                 نبض
-                مساعد ذكاء اصطناعي محلي يعمل على جهازك.
+                مساعد محلي يعمل على جهازك.
 
                 النماذج المدعومة:
                 • Gemma E2B

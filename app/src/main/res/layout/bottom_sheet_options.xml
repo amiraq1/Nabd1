@@ -44,7 +44,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="مساعد ذكاء اصطناعي محلي"
+            android:text="مساعد محلي"
             android:textColor="@color/nabd_text_secondary"
             android:textDirection="locale"
             android:textSize="12sp" />

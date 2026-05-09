@@ -10,15 +10,15 @@ object DocumentMessageFormatter {
 
     fun emptyLibraryMessage(): String = "المكتبة فارغة"
 
-    fun semanticSearchUsedStatus(): String = "تم استخدام البحث الدلالي • جاري التوليد..."
+    fun semanticSearchUsedStatus(): String = "بحث دلالي • جاري التوليد..."
 
-    fun keywordSearchUsedStatus(): String = "تم استخدام البحث النصي • جاري التوليد..."
+    fun keywordSearchUsedStatus(): String = "بحث نصي • جاري التوليد..."
 
     fun semanticFallbackStatus(): String =
-        "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+        "بحث نصي (البحث الدلالي غير جاهز) • جاري التوليد..."
 
     fun semanticFallbackStatusWithReason(reason: String): String =
-        "$reason\nتم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+        "بحث نصي ($reason) • جاري التوليد..."
 
     fun selectedDocumentStatus(title: String): String = "المستند المحدد: $title"
 
