@@ -2920,8 +2920,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAttachmentTypeDialog() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("ملف")
-            .setItems(arrayOf("صورة", "PDF")) { _, which ->
+            .setTitle(com.example.localqwen.attachments.AttachmentOptionsHelper.attachmentDialogTitle())
+            .setItems(com.example.localqwen.attachments.AttachmentOptionsHelper.mainAttachmentOptions()) { _, which ->
                 if (which == 0) openImagePicker() else openPdfPicker()
             }
             .show()
@@ -3585,9 +3585,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val options = arrayOf("استخراج النص من الصورة", "اسأل عن الصورة")
+        val options = com.example.localqwen.attachments.AttachmentOptionsHelper.imageActionOptions()
         MaterialAlertDialogBuilder(this)
-            .setTitle("إجراء الصورة")
+            .setTitle(com.example.localqwen.attachments.AttachmentOptionsHelper.imageActionDialogTitle())
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> executeImageOcrAnalysis(uri)
