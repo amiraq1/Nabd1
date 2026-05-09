@@ -53,6 +53,8 @@ import com.example.localqwen.model.ModelManager.SupportedModel
 import com.example.localqwen.prompt.NabdSystemPrompt
 import com.example.localqwen.rag.EmbeddingModelManager
 import com.example.localqwen.rag.EmbeddingStore
+import com.example.localqwen.diagnostics.LiteRtDiagnosticsData
+import com.example.localqwen.diagnostics.LiteRtDiagnosticsFormatter
 import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
@@ -1799,7 +1801,7 @@ class MainActivity : AppCompatActivity() {
             .setView(buildLiteRtDiagnosticsView(diagnostics))
             .setPositiveButton("إغلاق", null)
             .setNeutralButton("نسخ التشخيص") { _, _ ->
-                copyToClipboard("LiteRT-LM Diagnostics", buildLiteRtDiagnosticsText(diagnostics))
+                copyToClipboard("LiteRT-LM Diagnostics", LiteRtDiagnosticsFormatter.buildReport(diagnostics))
                 Toast.makeText(this, "تم نسخ التشخيص", Toast.LENGTH_SHORT).show()
             }
             .show()
@@ -1890,22 +1892,6 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             )
-        }
-    }
-
-    private fun buildLiteRtDiagnosticsText(data: LiteRtDiagnosticsData): String {
-        return buildString {
-            appendLine("تشخيص نموذج الذكاء")
-            appendLine("النموذج الحالي: ${data.currentModelLabel}")
-            appendLine("حالة النموذج: ${data.modelStatusLabel}")
-            appendLine("حجم النموذج المستورد: ${data.importedModelSizeLabel}")
-            appendLine("ملف النموذج: ${data.modelFileLabel}")
-            appendLine("Engine: ${data.engineStatusLabel}")
-            appendLine("آخر زمن استجابة: ${data.lastResponseLatencyLabel}")
-            appendLine("آخر مدة توليد: ${data.lastGenerationDurationLabel}")
-            appendLine("آخر عدد أحرف الرد: ${data.lastResponseCharCountLabel}")
-            appendLine("Backend: ${data.backendLabel}")
-            append("ملاحظة: يعتمد الأداء على الجهاز والذاكرة وحجم النموذج.")
         }
     }
 
@@ -4008,18 +3994,6 @@ private data class RagDiagnosticsData(
     val indexInfo: EmbeddingStore.EmbeddingIndexInfo?,
     val lastState: String,
     val canBuildIndex: Boolean
-)
-
-private data class LiteRtDiagnosticsData(
-    val currentModelLabel: String,
-    val modelStatusLabel: String,
-    val importedModelSizeLabel: String,
-    val modelFileLabel: String,
-    val engineStatusLabel: String,
-    val lastResponseLatencyLabel: String,
-    val lastGenerationDurationLabel: String,
-    val lastResponseCharCountLabel: String,
-    val backendLabel: String
 )
 
 private data class LocalModelProbeResult(
