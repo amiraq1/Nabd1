@@ -69,6 +69,7 @@ import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
 import com.example.localqwen.tools.PhoneToolRouter
+import com.example.localqwen.ui.NabdErrorMessages
 import com.example.localqwen.viewmodel.ChatViewModel
 import com.example.localqwen.viewmodel.ModelViewModel
 import com.example.localqwen.viewmodel.ModelState
@@ -1051,7 +1052,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (textInferenceEngine?.isReady() != true || loadedModelId != selectedModel.id) {
-            setStatusError("يرجى تشغيل نبض أولًا")
+            setStatusError(NabdErrorMessages.engineNotReady())
             return
         }
 
@@ -1208,7 +1209,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         val engine = textInferenceEngine
         if (engine == null || !engine.isReady()) {
-            setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
+            setStatusError(NabdErrorMessages.modelLoadFailed())
             return
         }
 
@@ -1286,7 +1287,7 @@ class MainActivity : AppCompatActivity() {
                     firstUserMessage = firstUserMessage,
                     immediate = true
                 )
-                setStatusError("حدث خطأ أثناء توليد الرد.")
+                setStatusError(NabdErrorMessages.generationFailed())
             } catch (_: Exception) {
                 val generationFinishedAt = SystemClock.elapsedRealtime()
                 lastGenerationFinishedAtElapsedMs = generationFinishedAt
@@ -1296,7 +1297,7 @@ class MainActivity : AppCompatActivity() {
                     firstUserMessage = firstUserMessage,
                     immediate = true
                 )
-                setStatusError("حدث خطأ أثناء توليد الرد.")
+                setStatusError(NabdErrorMessages.generationFailed())
             } finally {
                 if (lastGenerationFinishedAtElapsedMs == null) {
                     val generationFinishedAt = SystemClock.elapsedRealtime()
@@ -1368,11 +1369,11 @@ class MainActivity : AppCompatActivity() {
             } catch (oom: OutOfMemoryError) {
                 closeModelResources()
                 localEngineLastErrorMessage = oom.message ?: "نفاد الذاكرة أثناء تحميل النموذج."
-                setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
+                setStatusError(NabdErrorMessages.modelLoadFailed())
             } catch (exception: Exception) {
                 closeModelResources()
                 localEngineLastErrorMessage = exception.message ?: "فشل تحميل النموذج."
-                setStatusError("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
+                setStatusError(NabdErrorMessages.modelLoadFailed())
             } finally {
                 isLoadingModel = false
                 updateButtons()
@@ -3737,9 +3738,9 @@ class MainActivity : AppCompatActivity() {
                     setStatusError("لم يتم العثور على نص واضح.")
                 }
             } catch (_: OutOfMemoryError) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+                setStatusError(NabdErrorMessages.fileTooLarge())
             } catch (_: Exception) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+                setStatusError(NabdErrorMessages.fileTooLarge())
             } finally {
                 isProcessingFile = false
                 updateButtons()
@@ -3891,17 +3892,17 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton("إلغاء", null)
                         .show()
                 } else {
-                    setStatusError("لم يتم العثور على نص واضح في الصورة. الوصف البصري الكامل يحتاج نموذج رؤية غير متاح حاليًا.")
+                setStatusError(NabdErrorMessages.visionModelMissing())
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("تنبيه")
-                        .setMessage("لم يتم العثور على نص واضح في الصورة. الوصف البصري الكامل يحتاج نموذج رؤية غير متاح حاليًا.")
+                        .setMessage(NabdErrorMessages.visionModelMissing())
                         .setPositiveButton("حسناً", null)
                         .show()
                 }
             } catch (_: OutOfMemoryError) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+                setStatusError(NabdErrorMessages.fileTooLarge())
             } catch (_: Exception) {
-                setStatusError("الملف كبير جدًا للمعالجة الحالية.")
+                setStatusError(NabdErrorMessages.fileTooLarge())
             } finally {
                 isProcessingFile = false
                 updateButtons()
@@ -3987,19 +3988,6 @@ class MainActivity : AppCompatActivity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
-    }
-
-    private fun processPdfUri(uri: Uri) {
-        val fileName = getFileName(uri) ?: DEFAULT_PDF_TITLE
-        val request = androidx.work.OneTimeWorkRequestBuilder<com.example.localqwen.work.PdfProcessingWorker>()
-            .setInputData(androidx.work.workDataOf(
-                com.example.localqwen.work.PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
-                com.example.localqwen.work.PdfProcessingWorker.KEY_PDF_TITLE to fileName
-            ))
-            .addTag(PDF_PROCESSING_TAG)
-            .build()
-        workManager.enqueue(request)
-        setStatusInfo("تم بدء معالجة ملف PDF: $fileName")
     }
 
     private fun formatDate(timestamp: Long): String {
