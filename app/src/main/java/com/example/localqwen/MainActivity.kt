@@ -55,6 +55,7 @@ import com.example.localqwen.rag.EmbeddingModelManager
 import com.example.localqwen.rag.EmbeddingStore
 import com.example.localqwen.diagnostics.LiteRtDiagnosticsData
 import com.example.localqwen.diagnostics.LiteRtDiagnosticsFormatter
+import com.example.localqwen.diagnostics.LocalModelDiagnosticsFormatter
 import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
@@ -2168,27 +2169,24 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun runLocalModelShortGenerationTest(): String {
         val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SHORT_TEST_PROMPT)
-        if (!probe.success) return "فشل اختبار التوليد القصير: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
-        return buildString {
-            append("نجح اختبار التوليد القصير")
-            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
-            probe.totalDurationMs?.let { append(" • المدة: ${it}ms") }
-            probe.responseCharCount?.let { append(" • الأحرف: $it") }
-        }
+        return LocalModelDiagnosticsFormatter.formatGenerationTest(
+            success = probe.success,
+            firstTokenLatencyMs = probe.firstTokenLatencyMs,
+            totalDurationMs = probe.totalDurationMs,
+            responseCharCount = probe.responseCharCount,
+            errorMessage = probe.errorMessage
+        )
     }
 
     private suspend fun runLocalModelSpeedTest(): String {
         val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SPEED_TEST_PROMPT)
-        if (!probe.success) return "فشل اختبار السرعة: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
-        val duration = probe.totalDurationMs ?: 0L
-        val chars = probe.responseCharCount ?: 0
-        val charsPerSecond = if (duration > 0L) (chars * 1000f) / duration else 0f
-        return buildString {
-            append("نجح اختبار السرعة")
-            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
-            append(" • المدة: ${duration}ms")
-            append(" • معدل الأحرف/ث: ${String.format(Locale.US, "%.1f", charsPerSecond)}")
-        }
+        return LocalModelDiagnosticsFormatter.formatSpeedTest(
+            success = probe.success,
+            firstTokenLatencyMs = probe.firstTokenLatencyMs,
+            totalDurationMs = probe.totalDurationMs,
+            responseCharCount = probe.responseCharCount,
+            errorMessage = probe.errorMessage
+        )
     }
 
     private fun runLocalModelMemoryTest(): String {
@@ -2196,12 +2194,11 @@ class MainActivity : AppCompatActivity() {
         val used = runtime.totalMemory() - runtime.freeMemory()
         val max = runtime.maxMemory()
         val freeInsideHeap = runtime.freeMemory()
-        return buildString {
-            append("نجح اختبار الذاكرة")
-            append(" • مستخدم: ${formatStorageSize(used)}")
-            append(" • متاح داخل heap: ${formatStorageSize(freeInsideHeap)}")
-            append(" • حد heap: ${formatStorageSize(max)}")
-        }
+        return LocalModelDiagnosticsFormatter.formatMemoryTest(
+            usedBytes = used,
+            freeInsideHeapBytes = freeInsideHeap,
+            maxHeapBytes = max
+        )
     }
 
     private suspend fun runLocalModelInferenceProbe(prompt: String): LocalModelProbeResult {
