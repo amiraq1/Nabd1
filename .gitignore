@@ -19,3 +19,4 @@ files/embeddings/
 *.iml
 .DS_Store
 *.log
+*.hprof

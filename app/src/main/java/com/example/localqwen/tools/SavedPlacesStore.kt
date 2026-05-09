@@ -1,66 +1,65 @@
 package com.example.localqwen.tools
 
 import android.content.Context
-import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class SavedPlace(
-    val name: String,
-    val query: String,
-    val createdAt: Long = System.currentTimeMillis()
-)
-
+/**
+ * Persists saved map places using SharedPreferences (JSON array).
+ */
 class SavedPlacesStore(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("nabd_prefs", Context.MODE_PRIVATE)
+
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun getPlaces(): List<SavedPlace> {
-        val jsonStr = prefs.getString("saved_map_places_json", "[]") ?: "[]"
-        val places = mutableListOf<SavedPlace>()
-        try {
-            val arr = JSONArray(jsonStr)
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                places.add(SavedPlace(
-                    name = obj.getString("name"),
-                    query = obj.getString("query"),
-                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
-                ))
-            }
-        } catch (e: Exception) { }
-        return places.sortedBy { it.createdAt }
+        val json = prefs.getString(KEY_PLACES, null) ?: return emptyList()
+        return runCatching { parseList(json) }.getOrDefault(emptyList())
     }
 
     fun savePlace(place: SavedPlace) {
         val places = getPlaces().toMutableList()
-        val index = places.indexOfFirst { it.name.lowercase() == place.name.lowercase() }
-        if (index >= 0) {
-            places[index] = place
-        } else {
-            places.add(place)
-        }
-        saveAll(places)
-    }
-
-    fun deletePlace(name: String) {
-        val places = getPlaces().filter { it.name.lowercase() != name.lowercase() }
-        saveAll(places)
+        places.removeAll { it.name.equals(place.name, ignoreCase = true) }
+        places.add(0, place)
+        persist(places)
     }
 
     fun getPlace(name: String): SavedPlace? {
-        return getPlaces().find { it.name.lowercase() == name.lowercase() }
+        return getPlaces().firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
 
-    private fun saveAll(places: List<SavedPlace>) {
-        val arr = JSONArray()
-        places.forEach {
-            val obj = JSONObject().apply {
-                put("name", it.name)
-                put("query", it.query)
-                put("createdAt", it.createdAt)
-            }
-            arr.put(obj)
+    fun deletePlace(name: String): Boolean {
+        val places = getPlaces().toMutableList()
+        val removed = places.removeAll { it.name.equals(name, ignoreCase = true) }
+        if (removed) persist(places)
+        return removed
+    }
+
+    private fun persist(places: List<SavedPlace>) {
+        val array = JSONArray()
+        for (place in places) {
+            array.put(JSONObject().apply {
+                put("name", place.name)
+                put("query", place.query)
+                put("createdAt", place.createdAt)
+            })
         }
-        prefs.edit().putString("saved_map_places_json", arr.toString()).apply()
+        prefs.edit().putString(KEY_PLACES, array.toString()).apply()
+    }
+
+    private fun parseList(json: String): List<SavedPlace> {
+        val array = JSONArray(json)
+        return List(array.length()) { i ->
+            val obj = array.getJSONObject(i)
+            SavedPlace(
+                name = obj.getString("name"),
+                query = obj.getString("query"),
+                createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+            )
+        }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "nabd_prefs"
+        private const val KEY_PLACES = "saved_map_places_json"
     }
 }

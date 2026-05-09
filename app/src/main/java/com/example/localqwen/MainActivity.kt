@@ -38,12 +38,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.example.localqwen.attachments.PdfMessageFormatter
 import com.example.localqwen.chat.ChatAdapter
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.ChatSession
 import com.example.localqwen.chat.ChatSessionStore
 import com.example.localqwen.chat.Role
 import com.example.localqwen.diagnostics.BetaReportBuilder
+import com.example.localqwen.document.DocumentMessageFormatter
 import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.DocumentToolIntent
 import com.example.localqwen.document.DocumentToolRequest
@@ -56,6 +58,9 @@ import com.example.localqwen.model.ModelManager.SupportedModel
 import com.example.localqwen.prompt.NabdSystemPrompt
 import com.example.localqwen.rag.EmbeddingModelManager
 import com.example.localqwen.rag.EmbeddingStore
+import com.example.localqwen.diagnostics.LiteRtDiagnosticsData
+import com.example.localqwen.diagnostics.LiteRtDiagnosticsFormatter
+import com.example.localqwen.diagnostics.LocalModelDiagnosticsFormatter
 import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
@@ -64,6 +69,10 @@ import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
 import com.example.localqwen.tools.PhoneToolRouter
+import com.example.localqwen.viewmodel.ChatViewModel
+import com.example.localqwen.viewmodel.ModelViewModel
+import com.example.localqwen.viewmodel.ModelState
+import com.example.localqwen.viewmodel.StatusEvent
 import com.example.localqwen.work.PdfProcessingWorker
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
@@ -75,6 +84,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import androidx.activity.viewModels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +106,10 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class MainActivity : AppCompatActivity() {
+    // --- ViewModels ---
+    private val chatViewModel: ChatViewModel by viewModels()
+    private val modelViewModel: ModelViewModel by viewModels()
+
     private lateinit var statusView: TextView
     private lateinit var rvChatMessages: RecyclerView
     private lateinit var chatAdapter: ChatAdapter
@@ -208,8 +222,6 @@ class MainActivity : AppCompatActivity() {
 
         migrateOldHistoryIfNeeded()
         loadActiveSession()
-        setStatusInfo(currentStatus())
-        renderChatHistory()
 
         optionsButton.setOnClickListener { showOptionsBottomSheet() }
         attachButton.setOnClickListener {
@@ -263,7 +275,7 @@ class MainActivity : AppCompatActivity() {
                 messagesJson = oldJson,
                 lastAssistantResponse = preferences.getString(KEY_CHAT_HISTORY_TEXT, "") ?: ""
             )
-            chatSessionStore.saveSession(session)
+            scope.launch { chatSessionStore.saveSession(session) }
             chatSessionStore.setActiveSessionId(session.id)
         }
     }
@@ -325,12 +337,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadActiveSession() {
-        val session = chatSessionStore.getActiveOrCreateSession()
-        chatMessages.clear()
-        chatMessages.addAll(loadChatMessages(session.messagesJson))
-        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse, preserveMarkdown = true)
-        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
-        session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+        scope.launch {
+            val session = chatSessionStore.getActiveOrCreateSession()
+            chatMessages.clear()
+            chatMessages.addAll(loadChatMessages(session.messagesJson))
+            lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse, preserveMarkdown = true)
+            activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
+            session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+            renderChatHistory()
+            setStatusInfo(currentStatus())
+        }
     }
 
     private fun loadChatMessages(rawMessages: String): MutableList<ChatMessage> {
@@ -439,7 +455,7 @@ class MainActivity : AppCompatActivity() {
         activeAssistantMessageIndex = -1
         chatAdapter.clearMessages()
         documentStore.clearSelectedDocumentId()
-        chatSessionStore.createNewSession()
+        scope.launch { chatSessionStore.createNewSession() }
         setStatusInfo("تم إنشاء محادثة جديدة")
         updateButtons()
     }
@@ -447,19 +463,17 @@ class MainActivity : AppCompatActivity() {
     private fun switchSession(id: String) {
         chatSessionStore.setActiveSessionId(id)
         loadActiveSession()
-        renderChatHistory()
-        setStatusInfo(currentStatus())
         updateButtons()
     }
 
     private fun currentStatus(): String {
-        val session = chatSessionStore.getActiveOrCreateSession()
+        val sessionTitle = chatSessionStore.getActiveSessionId()?.let { "المحادثة الحالية" } ?: "محادثة جديدة"
         val base = when {
             textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "جاهز • ${selectedModel.displayName}"
             modelManager.isModelReady(selectedModel) -> "غير مشغّل • ${selectedModel.displayName}"
             else -> "غير مستورد • ${selectedModel.displayName}"
         }
-        return "المحادثة: ${session.title}\n$base"
+        return "$sessionTitle\n$base"
     }
 
     private fun currentModelStatusLabel(): String {
@@ -590,7 +604,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentDocumentAnswerLength(): String {
-        return chatSessionStore.getActiveOrCreateSession().documentAnswerLength ?: "short"
+        return preferences.getString("document_answer_length", "short") ?: "short"
     }
 
     private fun currentRagMode(): RagMode {
@@ -637,10 +651,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateDocumentAnswerLength(value: String) {
-        val session = chatSessionStore.getActiveOrCreateSession()
-        session.documentAnswerLength = value
-        session.updatedAt = System.currentTimeMillis()
-        chatSessionStore.saveSession(session)
+        preferences.edit().putString("document_answer_length", value).apply()
+        scope.launch {
+            val session = chatSessionStore.getActiveOrCreateSession()
+            session.documentAnswerLength = value
+            session.updatedAt = System.currentTimeMillis()
+            chatSessionStore.saveSession(session)
+        }
         setStatusSuccess("تم ضبط طول إجابة المستند: ${documentAnswerLengthLabel(value)}")
     }
 
@@ -828,7 +845,7 @@ class MainActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
-    private fun saveExtractedDocument(title: String, type: String, text: String) {
+    private suspend fun saveExtractedDocument(title: String, type: String, text: String) {
         if (text.isBlank()) return
         scope.launch {
             val document = LocalDocument(
@@ -967,7 +984,7 @@ class MainActivity : AppCompatActivity() {
         return if (reason.isNullOrBlank()) {
             SEMANTIC_FALLBACK_GENERATION_STATUS
         } else {
-            "$reason\nتم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+            DocumentMessageFormatter.semanticFallbackStatusWithReason(reason)
         }
     }
 
@@ -1117,7 +1134,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
         val cleanedText = cleanForDisplay(text, preserveMarkdown = preserveMarkdown)
-        chatMessages[activeAssistantMessageIndex].text = cleanedText
+        chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(text = cleanedText)
         chatAdapter.updateLastAssistantMessage(cleanedText, renderMarkdown = renderMarkdown)
         if (forceScroll) {
             scrollChatToBottom()
@@ -1227,7 +1244,6 @@ class MainActivity : AppCompatActivity() {
                                     snapshot,
                                     preserveMarkdown = preserveMarkdownOutput
                                 )
-                                assistant.text = cleanedSnapshot
                                 updateAssistantMessage(
                                     text = cleanedSnapshot,
                                     preserveMarkdown = preserveMarkdownOutput,
@@ -1242,7 +1258,6 @@ class MainActivity : AppCompatActivity() {
                     output.toString(),
                     preserveMarkdown = preserveMarkdownOutput
                 ).ifBlank { "(فارغ)" }
-                assistant.text = finalText
                 lastAssistantResponse = finalText
                 lastResponseCharCount = finalText.length
                 val generationFinishedAt = SystemClock.elapsedRealtime()
@@ -1791,7 +1806,7 @@ class MainActivity : AppCompatActivity() {
             .setView(buildLiteRtDiagnosticsView(diagnostics))
             .setPositiveButton("إغلاق", null)
             .setNeutralButton("نسخ التشخيص") { _, _ ->
-                copyToClipboard("LiteRT-LM Diagnostics", buildLiteRtDiagnosticsText(diagnostics))
+                copyToClipboard("LiteRT-LM Diagnostics", LiteRtDiagnosticsFormatter.buildReport(diagnostics))
                 Toast.makeText(this, "تم نسخ التشخيص", Toast.LENGTH_SHORT).show()
             }
             .show()
@@ -1882,22 +1897,6 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             )
-        }
-    }
-
-    private fun buildLiteRtDiagnosticsText(data: LiteRtDiagnosticsData): String {
-        return buildString {
-            appendLine("تشخيص نموذج الذكاء")
-            appendLine("النموذج الحالي: ${data.currentModelLabel}")
-            appendLine("حالة النموذج: ${data.modelStatusLabel}")
-            appendLine("حجم النموذج المستورد: ${data.importedModelSizeLabel}")
-            appendLine("ملف النموذج: ${data.modelFileLabel}")
-            appendLine("Engine: ${data.engineStatusLabel}")
-            appendLine("آخر زمن استجابة: ${data.lastResponseLatencyLabel}")
-            appendLine("آخر مدة توليد: ${data.lastGenerationDurationLabel}")
-            appendLine("آخر عدد أحرف الرد: ${data.lastResponseCharCountLabel}")
-            appendLine("Backend: ${data.backendLabel}")
-            append("ملاحظة: يعتمد الأداء على الجهاز والذاكرة وحجم النموذج.")
         }
     }
 
@@ -2174,27 +2173,24 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun runLocalModelShortGenerationTest(): String {
         val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SHORT_TEST_PROMPT)
-        if (!probe.success) return "فشل اختبار التوليد القصير: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
-        return buildString {
-            append("نجح اختبار التوليد القصير")
-            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
-            probe.totalDurationMs?.let { append(" • المدة: ${it}ms") }
-            probe.responseCharCount?.let { append(" • الأحرف: $it") }
-        }
+        return LocalModelDiagnosticsFormatter.formatGenerationTest(
+            success = probe.success,
+            firstTokenLatencyMs = probe.firstTokenLatencyMs,
+            totalDurationMs = probe.totalDurationMs,
+            responseCharCount = probe.responseCharCount,
+            errorMessage = probe.errorMessage
+        )
     }
 
     private suspend fun runLocalModelSpeedTest(): String {
         val probe = runLocalModelInferenceProbe(LOCAL_MODEL_SPEED_TEST_PROMPT)
-        if (!probe.success) return "فشل اختبار السرعة: ${probe.errorMessage ?: "تعذر إكمال الاختبار"}"
-        val duration = probe.totalDurationMs ?: 0L
-        val chars = probe.responseCharCount ?: 0
-        val charsPerSecond = if (duration > 0L) (chars * 1000f) / duration else 0f
-        return buildString {
-            append("نجح اختبار السرعة")
-            probe.firstTokenLatencyMs?.let { append(" • أول رمز: ${it}ms") }
-            append(" • المدة: ${duration}ms")
-            append(" • معدل الأحرف/ث: ${String.format(Locale.US, "%.1f", charsPerSecond)}")
-        }
+        return LocalModelDiagnosticsFormatter.formatSpeedTest(
+            success = probe.success,
+            firstTokenLatencyMs = probe.firstTokenLatencyMs,
+            totalDurationMs = probe.totalDurationMs,
+            responseCharCount = probe.responseCharCount,
+            errorMessage = probe.errorMessage
+        )
     }
 
     private fun runLocalModelMemoryTest(): String {
@@ -2202,12 +2198,11 @@ class MainActivity : AppCompatActivity() {
         val used = runtime.totalMemory() - runtime.freeMemory()
         val max = runtime.maxMemory()
         val freeInsideHeap = runtime.freeMemory()
-        return buildString {
-            append("نجح اختبار الذاكرة")
-            append(" • مستخدم: ${formatStorageSize(used)}")
-            append(" • متاح داخل heap: ${formatStorageSize(freeInsideHeap)}")
-            append(" • حد heap: ${formatStorageSize(max)}")
-        }
+        return LocalModelDiagnosticsFormatter.formatMemoryTest(
+            usedBytes = used,
+            freeInsideHeapBytes = freeInsideHeap,
+            maxHeapBytes = max
+        )
     }
 
     private suspend fun runLocalModelInferenceProbe(prompt: String): LocalModelProbeResult {
@@ -2341,7 +2336,7 @@ class MainActivity : AppCompatActivity() {
             embeddingBackendLabel = embeddingBackendLabel(currentEmbeddingBackend()),
             embeddingModelImported = modelReady,
             embeddingModelDisplayPath = "files/${EmbeddingModelManager.EMBEDDING_MODEL_RELATIVE_PATH}",
-            selectedDocumentTitle = selectedDocument?.title ?: "لا يوجد مستند محدد",
+            selectedDocumentTitle = selectedDocument?.title ?: DocumentMessageFormatter.noSelectedDocumentMessage(),
             indexInfo = indexInfo,
             lastState = lastState,
             canBuildIndex = modelReady && selectedDocument != null
@@ -2393,7 +2388,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val indexValue = when {
-            data.selectedDocumentTitle == "لا يوجد مستند محدد" -> "اختر مستندًا أولًا."
+            data.selectedDocumentTitle == DocumentMessageFormatter.noSelectedDocumentMessage() -> "اختر مستندًا أولًا."
             data.indexInfo == null -> "غير موجود"
             else -> {
                 buildString {
@@ -2631,7 +2626,7 @@ class MainActivity : AppCompatActivity() {
         sortedInfos.forEachIndexed { index, workInfo ->
             val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
                 ?: workInfo.progress.getString(PdfProcessingWorker.KEY_PDF_TITLE)
-                ?: DEFAULT_PDF_TITLE
+                ?: PdfMessageFormatter.defaultPdfTitle()
             val value = buildPdfTaskDetails(workInfo)
             appendDiagnosticsField(
                 container = container,
@@ -2819,7 +2814,7 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
                 saveActiveSessionDebounced(immediate = true)
-                setStatusSuccess("تم إلغاء اختيار المستند")
+                setStatusSuccess(DocumentMessageFormatter.documentClearedMessage())
             }
             SettingsActivity.ACTION_CLEAR_CHAT -> confirmClearChat()
             SettingsActivity.ACTION_COPY_CHAT -> copyFullConversation()
@@ -2896,7 +2891,7 @@ class MainActivity : AppCompatActivity() {
                     DocumentToolIntent.SHOW_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
                     DocumentToolIntent.CLEAR_SELECTED_DOCUMENT -> {
                         documentStore.clearSelectedDocumentId()
-                        addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم إلغاء اختيار المستند"))
+                        addChatMessage(ChatMessage(role = Role.ASSISTANT, text = DocumentMessageFormatter.documentClearedMessage()))
                         setStatusInfo(currentStatus())
                     }
 
@@ -2946,7 +2941,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun performCurrentDocumentSummary(): String {
-        val document = getSelectedDocument() ?: return "لا يوجد مستند محدد"
+        val document = getSelectedDocument() ?: return DocumentMessageFormatter.noSelectedDocumentMessage()
         val excerpt = document.extractedText
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -2978,8 +2973,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAttachmentTypeDialog() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("ملف")
-            .setItems(arrayOf("صورة", "PDF")) { _, which ->
+            .setTitle(com.example.localqwen.attachments.AttachmentOptionsHelper.attachmentDialogTitle())
+            .setItems(com.example.localqwen.attachments.AttachmentOptionsHelper.mainAttachmentOptions()) { _, which ->
                 if (which == 0) openImagePicker() else openPdfPicker()
             }
             .show()
@@ -3053,7 +3048,7 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             val documents = withContext(Dispatchers.IO) { documentStore.getDocuments() }
             if (documents.isEmpty()) {
-                setStatusError("المكتبة فارغة")
+                setStatusError(DocumentMessageFormatter.emptyLibraryMessage())
                 return@launch
             }
 
@@ -3065,7 +3060,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("المكتبة")
                 .setItems(labels) { _, which ->
                     documentStore.setSelectedDocumentId(documents[which].id)
-                    setStatusSuccess("تم اختيار: ${documents[which].title}")
+                    setStatusSuccess(DocumentMessageFormatter.documentSelectedMessage(documents[which].title))
                     setStatusInfo(currentStatus())
                 }
                 .show()
@@ -3264,7 +3259,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("حفظ") { _, _ ->
                 val newTitle = input.text.toString().trim()
                 if (newTitle.isNotEmpty()) {
-                    chatSessionStore.renameSession(session.id, newTitle)
+                    scope.launch { chatSessionStore.renameSession(session.id, newTitle) }
                     session.title = newTitle
                     onRenamed()
                 }
@@ -3278,18 +3273,20 @@ class MainActivity : AppCompatActivity() {
             .setTitle("حذف المحادثة؟")
             .setMessage("هل أنت متأكد من حذف هذه المحادثة؟")
             .setPositiveButton("حذف") { _, _ ->
-                chatSessionStore.deleteSession(session.id)
-                if (chatSessionStore.getActiveSessionId() == session.id) {
-                    chatSessionStore.setActiveSessionId(null)
-                    val sessions = chatSessionStore.getAllSessions()
-                    if (sessions.isNotEmpty()) {
-                        switchSession(sessions.first().id)
-                    } else {
-                        chatMessages.clear()
-                        chatAdapter.notifyDataSetChanged()
+                scope.launch {
+                    chatSessionStore.deleteSession(session.id)
+                    if (chatSessionStore.getActiveSessionId() == session.id) {
+                        chatSessionStore.setActiveSessionId(null)
+                        val sessions = chatSessionStore.getAllSessions()
+                        if (sessions.isNotEmpty()) {
+                            switchSession(sessions.first().id)
+                        } else {
+                            chatMessages.clear()
+                            chatAdapter.submitMessages(emptyList())
+                        }
                     }
+                    onDeleted()
                 }
-                onDeleted()
             }
             .setNegativeButton("إلغاء", null)
             .show()
@@ -3688,9 +3685,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val options = arrayOf("استخراج النص من الصورة", "اسأل عن الصورة")
+        val options = com.example.localqwen.attachments.AttachmentOptionsHelper.imageActionOptions()
         MaterialAlertDialogBuilder(this)
-            .setTitle("إجراء الصورة")
+            .setTitle(com.example.localqwen.attachments.AttachmentOptionsHelper.imageActionDialogTitle())
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> executeImageOcrAnalysis(uri)
@@ -3805,14 +3802,12 @@ class MainActivity : AppCompatActivity() {
                                             lastRenderedRawLength = output.length
                                             withContext(Dispatchers.Main) {
                                                 val cleanedSnapshot = cleanForDisplay(snapshot, preserveMarkdown = true)
-                                                assistant.text = cleanedSnapshot
                                                 updateAssistantMessage(cleanedSnapshot, preserveMarkdown = true, renderMarkdown = false)
                                             }
                                         }
                                     }
                                 }
                                 val finalText = cleanForDisplay(output.toString(), preserveMarkdown = true).ifBlank { "(فارغ)" }
-                                assistant.text = finalText
                                 lastAssistantResponse = finalText
                                 updateAssistantMessage(finalText, forceScroll = true, preserveMarkdown = true, renderMarkdown = true)
                                 setStatusSuccess("تم التحليل بنموذج الرؤية.")
@@ -3822,7 +3817,7 @@ class MainActivity : AppCompatActivity() {
                                 withContext(Dispatchers.Main) {
                                     chatMessages.removeLast()
                                     chatMessages.removeLast()
-                                    chatAdapter.notifyDataSetChanged()
+                                    chatAdapter.submitMessages(chatMessages.toList())
                                     executeImageAskOcrFlow(uri)
                                 }
                             } finally {
@@ -3910,6 +3905,77 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 isProcessingFile = false
                 updateButtons()
+            }
+        }
+    }
+
+    private fun processPdfUri(uri: Uri) {
+        val title = getDisplayName(uri) ?: PdfMessageFormatter.defaultPdfTitle()
+        val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
+            .addTag(PDF_PROCESSING_TAG)
+            .setInputData(
+                workDataOf(
+                    PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
+                    PdfProcessingWorker.KEY_PDF_TITLE to title
+                )
+            )
+            .build()
+
+        addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfQueuedMessage(title)))
+        saveActiveSessionDebounced(immediate = true)
+        setStatusInfo(PdfMessageFormatter.pdfRunningStatus())
+
+        workManager.enqueue(request)
+        observePdfProcessing(request.id)
+    }
+
+    private fun observePdfProcessing(workId: UUID) {
+        workManager.getWorkInfoByIdLiveData(workId).observe(this) { workInfo ->
+            if (workInfo == null) return@observe
+
+            when (workInfo.state) {
+                WorkInfo.State.RUNNING -> {
+                    val page = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_PAGE, 0)
+                    val total = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_TOTAL, 0)
+                    if (page > 0 && total > 0) {
+                        setStatusInfo(PdfMessageFormatter.pdfProgressStatus(page, total))
+                    } else {
+                        setStatusInfo(PdfMessageFormatter.pdfRunningStatus())
+                    }
+                }
+
+                WorkInfo.State.SUCCEEDED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
+                        ?: PdfMessageFormatter.defaultPdfTitle()
+                    val extractedChars = workInfo.outputData.getInt(PdfProcessingWorker.KEY_EXTRACTED_CHARS, 0)
+                    addChatMessage(
+                        ChatMessage(
+                            role = Role.SYSTEM,
+                            text = PdfMessageFormatter.pdfSuccessMessage(title, extractedChars)
+                        )
+                    )
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusSuccess("اكتمل تحليل ملف PDF")
+                }
+
+                WorkInfo.State.FAILED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    val error = workInfo.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE)
+                        ?: "تعذر تحليل ملف PDF"
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfFailureMessage(error)))
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusError(error)
+                }
+
+                WorkInfo.State.CANCELLED -> {
+                    if (!handledPdfWorkIds.add(workId)) return@observe
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfCancelledMessage()))
+                    saveActiveSessionDebounced(immediate = true)
+                    setStatusError(PdfMessageFormatter.pdfCancelledMessage())
+                }
+
+                else -> Unit
             }
         }
     }
@@ -4006,11 +4072,10 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_DOCUMENT_SEARCH_RESULTS = 5
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
-        private const val DEFAULT_PDF_TITLE = "ملف PDF"
         private const val PDF_PROCESSING_TAG = "pdf_processing"
         private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
-        private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
-        private const val SEMANTIC_GENERATION_STATUS = "تم استخدام البحث الدلالي • جاري التوليد..."
+        private val KEYWORD_GENERATION_STATUS = DocumentMessageFormatter.keywordSearchUsedStatus()
+        private val SEMANTIC_GENERATION_STATUS = DocumentMessageFormatter.semanticSearchUsedStatus()
         private const val BACKGROUND_TASKS_MAX_PDF_ITEMS = 8
         private const val SEMANTIC_INDEX_STATUS_IDLE = "idle"
         private const val SEMANTIC_INDEX_STATUS_RUNNING = "running"
@@ -4024,8 +4089,8 @@ class MainActivity : AppCompatActivity() {
             "اكتب جملة عربية قصيرة جدًا من 4 إلى 6 كلمات فقط."
         private const val LOCAL_MODEL_SPEED_TEST_PROMPT =
             "اكتب قائمة من 1 إلى 10 بالأرقام فقط في سطر واحد."
-        private const val SEMANTIC_FALLBACK_GENERATION_STATUS =
-            "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+        private val SEMANTIC_FALLBACK_GENERATION_STATUS =
+            DocumentMessageFormatter.semanticFallbackStatus()
     }
 }
 
@@ -4046,18 +4111,6 @@ private data class LastRagOperationResult(
     val chunks: List<RetrievedChunk>,
     val rejectedCount: Int,
     val fullContextSentToModel: String
-)
-
-private data class LiteRtDiagnosticsData(
-    val currentModelLabel: String,
-    val modelStatusLabel: String,
-    val importedModelSizeLabel: String,
-    val modelFileLabel: String,
-    val engineStatusLabel: String,
-    val lastResponseLatencyLabel: String,
-    val lastGenerationDurationLabel: String,
-    val lastResponseCharCountLabel: String,
-    val backendLabel: String
 )
 
 private data class LocalModelProbeResult(

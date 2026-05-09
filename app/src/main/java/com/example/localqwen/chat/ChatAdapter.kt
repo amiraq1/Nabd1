@@ -9,25 +9,25 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.example.localqwen.R
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 
 class ChatAdapter(
-    private val context: Context,
-    private val messages: MutableList<ChatMessage> = mutableListOf()
-) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    private val context: Context
+) : ListAdapter<ChatMessage, RecyclerView.ViewHolder>(ChatDiffCallback()) {
+
     private val appContext = context.applicationContext
     private val markwon: Markwon = Markwon.builder(appContext)
         .usePlugin(TablePlugin.create(appContext))
         .build()
     private var streamingAssistantIndex = RecyclerView.NO_POSITION
 
-    override fun getItemCount(): Int = messages.size
-
     override fun getItemViewType(position: Int): Int {
-        return when (messages[position].role) {
+        return when (getItem(position).role) {
             Role.USER -> VIEW_TYPE_USER
             Role.ASSISTANT -> VIEW_TYPE_ASSISTANT
             Role.SYSTEM -> VIEW_TYPE_SYSTEM
@@ -40,12 +40,10 @@ class ChatAdapter(
             VIEW_TYPE_USER -> UserMessageViewHolder(
                 inflater.inflate(R.layout.item_message_user, parent, false)
             )
-
             VIEW_TYPE_ASSISTANT -> AssistantMessageViewHolder(
                 inflater.inflate(R.layout.item_message_assistant, parent, false),
                 markwon
             )
-
             else -> SystemMessageViewHolder(
                 inflater.inflate(R.layout.item_message_system, parent, false)
             )
@@ -53,7 +51,7 @@ class ChatAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val message = messages[position]
+        val message = getItem(position)
         when (holder) {
             is UserMessageViewHolder -> holder.bind(message)
             is AssistantMessageViewHolder -> holder.bind(
@@ -71,36 +69,27 @@ class ChatAdapter(
 
     fun submitMessages(newMessages: List<ChatMessage>) {
         streamingAssistantIndex = RecyclerView.NO_POSITION
-        messages.clear()
-        messages.addAll(newMessages)
-        notifyDataSetChanged()
+        submitList(newMessages.toList())
     }
 
     fun addMessage(message: ChatMessage) {
-        messages.add(message)
-        notifyItemInserted(messages.lastIndex)
-    }
-
-    fun updateMessage(position: Int, text: String) {
-        if (position !in messages.indices) return
-        messages[position].text = text
-        notifyItemChanged(position)
+        val updated = currentList.toMutableList()
+        updated.add(message)
+        submitList(updated)
     }
 
     fun updateLastAssistantMessage(text: String, renderMarkdown: Boolean = true) {
-        val index = messages.indexOfLast { it.role == Role.ASSISTANT }
+        val current = currentList.toMutableList()
+        val index = current.indexOfLast { it.role == Role.ASSISTANT }
         if (index != -1) {
-            streamingAssistantIndex = if (renderMarkdown) {
-                if (streamingAssistantIndex == index) RecyclerView.NO_POSITION else streamingAssistantIndex
-            } else {
-                index
-            }
-            updateMessage(index, text)
+            streamingAssistantIndex = if (renderMarkdown) RecyclerView.NO_POSITION else index
+            current[index] = current[index].copy(text = text)
+            submitList(current)
         }
     }
 
     fun markLastAssistantStreaming() {
-        val index = messages.indexOfLast { it.role == Role.ASSISTANT }
+        val index = currentList.indexOfLast { it.role == Role.ASSISTANT }
         if (index != -1) {
             streamingAssistantIndex = index
             notifyItemChanged(index)
@@ -109,8 +98,7 @@ class ChatAdapter(
 
     fun clearMessages() {
         streamingAssistantIndex = RecyclerView.NO_POSITION
-        messages.clear()
-        notifyDataSetChanged()
+        submitList(emptyList())
     }
 
     private fun copyMessage(text: String) {
@@ -158,5 +146,15 @@ class ChatAdapter(
         private const val VIEW_TYPE_USER = 1
         private const val VIEW_TYPE_ASSISTANT = 2
         private const val VIEW_TYPE_SYSTEM = 3
+    }
+}
+
+private class ChatDiffCallback : DiffUtil.ItemCallback<ChatMessage>() {
+    override fun areItemsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
+        return oldItem.id == newItem.id
+    }
+
+    override fun areContentsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
+        return oldItem.text == newItem.text && oldItem.role == newItem.role
     }
 }

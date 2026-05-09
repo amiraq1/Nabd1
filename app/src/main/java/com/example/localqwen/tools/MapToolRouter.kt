@@ -1,89 +1,113 @@
 package com.example.localqwen.tools
 
-sealed class MapToolIntent {
-    data class SearchMap(val query: String) : MapToolIntent()
-    data class RouteMap(val origin: String, val destination: String) : MapToolIntent()
-    data class SavePlace(val name: String, val query: String) : MapToolIntent()
-    data class OpenSavedPlace(val name: String) : MapToolIntent()
-    data class DeleteSavedPlace(val name: String) : MapToolIntent()
-    object ListSavedPlaces : MapToolIntent()
-}
-
+/**
+ * Detects map-related intents from user input (Arabic & English).
+ */
 object MapToolRouter {
-    private val mapKeywords = listOf("افتح الخريطة", "اعرض على الخريطة", "وين موقع", "map", "open map", "ابحث في الخريطة عن")
+
+    private val searchPatterns = listOf(
+        Regex("^(?:افتح|اعرض|فتح)\\s+(?:الخريطة|خريطة)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:افتح|اعرض|فتح)\\s+(?:على\\s+)?(?:الخريطة|خريطة)\\s*[:\\-]?\\s*(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:اعرض\\s+على\\s+الخريطة)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:وين|فين|أين)\\s+(?:موقع|مكان)?\\s*(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:ابحث|بحث)\\s+(?:على\\s+)?(?:الخريطة|خريطة)\\s+(?:عن\\s+)?(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:map|open map|show on map)\\s+(.+)", RegexOption.IGNORE_CASE)
+    )
 
     private val routePatterns = listOf(
-        Regex("طريق من\\s+(.+)\\s+إلى\\s+(.+)"),
-        Regex("مسار من\\s+(.+)\\s+إلى\\s+(.+)"),
-        Regex("route from\\s+(.+)\\s+to\\s+(.+)"),
-        Regex("directions from\\s+(.+)\\s+to\\s+(.+)")
+        Regex("^(?:طريق|مسار|الطريق|المسار)\\s+من\\s+(.+?)\\s+(?:إلى|الى|ل)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:route|directions?)\\s+from\\s+(.+?)\\s+to\\s+(.+)", RegexOption.IGNORE_CASE)
     )
 
-    private val savePatterns = listOf(
-        Regex("حفظ المكان\\s+(.+)\\s+باسم\\s+(.+)"),
-        Regex("احفظ المكان\\s+(.+)\\s+باسم\\s+(.+)")
+    private val savePlacePatterns = listOf(
+        Regex("^(?:حفظ|احفظ|سجل)\\s+(?:المكان|مكان)\\s+(.+?)\\s+(?:باسم|بإسم|اسمه)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:save place|save location)\\s+(.+?)\\s+(?:as|named)\\s+(.+)", RegexOption.IGNORE_CASE)
     )
 
-    private val openSavedPatterns = listOf(
-        Regex("افتح المكان\\s+(.+)"),
-        Regex("اعرض المكان المحفوظ\\s+(.+)")
+    private val openSavedPlacePatterns = listOf(
+        Regex("^(?:افتح|اعرض|فتح)\\s+(?:المكان|مكان)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:open place|open saved place)\\s+(.+)", RegexOption.IGNORE_CASE)
     )
 
-    private val deleteSavedPatterns = listOf(
-        Regex("حذف المكان\\s+(.+)"),
-        Regex("احذف المكان\\s+(.+)")
+    private val deletePlacePatterns = listOf(
+        Regex("^(?:حذف|احذف|امسح)\\s+(?:المكان|مكان)\\s+(.+)", RegexOption.IGNORE_CASE),
+        Regex("^(?:delete place|remove place)\\s+(.+)", RegexOption.IGNORE_CASE)
+    )
+
+    private val listPlacesPatterns = listOf(
+        Regex("^(?:عرض|اعرض|قائمة)\\s+(?:الأماكن|الاماكن)\\s+(?:المحفوظة)?", RegexOption.IGNORE_CASE),
+        Regex("^(?:الأماكن|الاماكن)\\s+(?:المحفوظة)", RegexOption.IGNORE_CASE),
+        Regex("^(?:list|show)\\s+(?:saved\\s+)?places", RegexOption.IGNORE_CASE)
     )
 
     fun detectMapIntent(input: String): MapToolIntent? {
-        val inputLow = input.lowercase().trim()
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) return null
 
-        if (inputLow == "عرض الأماكن المحفوظة" || inputLow == "الاماكن المحفوظة" || inputLow == "الخريطة المحفوظة" || inputLow == "الأماكن المحفوظة") {
-            return MapToolIntent.ListSavedPlaces
-        }
-
-        for (pattern in savePatterns) {
-            val match = pattern.find(input)
-            if (match != null) {
-                return MapToolIntent.SavePlace(match.groupValues[2].trim(), match.groupValues[1].trim())
-            }
-        }
-
+        // Route (check before search to avoid false positive)
         for (pattern in routePatterns) {
-            val match = pattern.find(inputLow)
+            val match = pattern.find(trimmed)
             if (match != null) {
-                return MapToolIntent.RouteMap(match.groupValues[1].trim(), match.groupValues[2].trim())
-            }
-        }
-
-        for (pattern in deleteSavedPatterns) {
-            val match = pattern.find(input)
-            if (match != null) {
-                return MapToolIntent.DeleteSavedPlace(match.groupValues[1].trim())
-            }
-        }
-
-        for (pattern in openSavedPatterns) {
-            val match = pattern.find(input)
-            if (match != null) {
-                return MapToolIntent.OpenSavedPlace(match.groupValues[1].trim())
-            }
-        }
-
-        if (mapKeywords.any { inputLow.contains(it) }) {
-            var query = input
-            for (keyword in mapKeywords) {
-                if (inputLow.contains(keyword)) {
-                    val idx = inputLow.indexOf(keyword)
-                    val extracted = input.substring(idx + keyword.length).trim()
-                    if (extracted.isNotBlank()) {
-                        query = extracted
-                        break
-                    }
+                val origin = match.groupValues[1].trim()
+                val destination = match.groupValues[2].trim()
+                if (origin.isNotBlank() && destination.isNotBlank()) {
+                    return MapToolIntent.RouteMap(origin, destination)
                 }
             }
-            return MapToolIntent.SearchMap(query.takeIf { it.isNotBlank() } ?: input)
         }
-        
+
+        // Save place
+        for (pattern in savePlacePatterns) {
+            val match = pattern.find(trimmed)
+            if (match != null) {
+                val query = match.groupValues[1].trim()
+                val name = match.groupValues[2].trim()
+                if (query.isNotBlank() && name.isNotBlank()) {
+                    return MapToolIntent.SavePlace(name, query)
+                }
+            }
+        }
+
+        // Delete place
+        for (pattern in deletePlacePatterns) {
+            val match = pattern.find(trimmed)
+            if (match != null) {
+                val name = match.groupValues[1].trim()
+                if (name.isNotBlank()) {
+                    return MapToolIntent.DeleteSavedPlace(name)
+                }
+            }
+        }
+
+        // List places
+        for (pattern in listPlacesPatterns) {
+            if (pattern.containsMatchIn(trimmed)) {
+                return MapToolIntent.ListSavedPlaces
+            }
+        }
+
+        // Open saved place
+        for (pattern in openSavedPlacePatterns) {
+            val match = pattern.find(trimmed)
+            if (match != null) {
+                val name = match.groupValues[1].trim()
+                if (name.isNotBlank()) {
+                    return MapToolIntent.OpenSavedPlace(name)
+                }
+            }
+        }
+
+        // Search (general map search — last priority)
+        for (pattern in searchPatterns) {
+            val match = pattern.find(trimmed)
+            if (match != null) {
+                val query = match.groupValues[1].trim()
+                if (query.isNotBlank()) {
+                    return MapToolIntent.SearchMap(query)
+                }
+            }
+        }
+
         return null
     }
 }

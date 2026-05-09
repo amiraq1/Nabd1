@@ -4,7 +4,6 @@ import android.content.SharedPreferences
 import com.example.localqwen.data.ChatSessionEntity
 import com.example.localqwen.data.NabdDatabase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 class ChatSessionStore(
@@ -16,35 +15,27 @@ class ChatSessionStore(
         private const val KEY_ACTIVE_SESSION_ID = "active_chat_session_id"
     }
 
-    fun getAllSessions(): List<ChatSession> = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.chatSessionDao().getAllSessions().map { fromEntity(it) }
+    suspend fun getAllSessions(): List<ChatSession> = withContext(Dispatchers.IO) {
+        db.chatSessionDao().getAllSessions().map { fromEntity(it) }
+    }
+
+    suspend fun getSession(id: String): ChatSession? = withContext(Dispatchers.IO) {
+        db.chatSessionDao().getSession(id)?.let { fromEntity(it) }
+    }
+
+    suspend fun saveSession(session: ChatSession) = withContext(Dispatchers.IO) {
+        db.chatSessionDao().insertOrUpdate(toEntity(session))
+    }
+
+    suspend fun deleteSession(id: String) = withContext(Dispatchers.IO) {
+        db.chatSessionDao().deleteById(id)
+        if (getActiveSessionId() == id) {
+            val sessions = db.chatSessionDao().getAllSessions()
+            setActiveSessionId(sessions.firstOrNull()?.id)
         }
     }
 
-    fun getSession(id: String): ChatSession? = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.chatSessionDao().getSession(id)?.let { fromEntity(it) }
-        }
-    }
-
-    fun saveSession(session: ChatSession) = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.chatSessionDao().insertOrUpdate(toEntity(session))
-        }
-    }
-
-    fun deleteSession(id: String) = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.chatSessionDao().deleteById(id)
-            if (getActiveSessionId() == id) {
-                val sessions = db.chatSessionDao().getAllSessions()
-                setActiveSessionId(sessions.firstOrNull()?.id)
-            }
-        }
-    }
-
-    fun createNewSession(): ChatSession {
+    suspend fun createNewSession(): ChatSession {
         val session = ChatSession()
         saveSession(session)
         setActiveSessionId(session.id)
@@ -59,7 +50,7 @@ class ChatSessionStore(
         return prefs.getString(KEY_ACTIVE_SESSION_ID, null)
     }
 
-    fun getActiveOrCreateSession(): ChatSession {
+    suspend fun getActiveOrCreateSession(): ChatSession {
         val id = getActiveSessionId()
         if (id != null) {
             val session = getSession(id)
@@ -68,7 +59,7 @@ class ChatSessionStore(
         return createNewSession()
     }
 
-    fun updateActiveSession(
+    suspend fun updateActiveSession(
         messagesJson: String,
         lastAssistantResponse: String,
         selectedDocumentId: String?,
@@ -91,7 +82,7 @@ class ChatSessionStore(
         saveSession(session)
     }
 
-    fun renameSession(id: String, newTitle: String) {
+    suspend fun renameSession(id: String, newTitle: String) {
         val session = getSession(id) ?: return
         session.title = newTitle
         session.updatedAt = System.currentTimeMillis()
@@ -99,24 +90,24 @@ class ChatSessionStore(
     }
 
     private fun toEntity(session: ChatSession) = ChatSessionEntity(
-        session.id,
-        session.title,
-        session.createdAt,
-        session.updatedAt,
-        session.messagesJson,
-        session.lastAssistantResponse,
-        session.selectedDocumentId,
-        session.documentAnswerLength
+        id = session.id,
+        title = session.title,
+        createdAt = session.createdAt,
+        updatedAt = session.updatedAt,
+        messagesText = session.messagesJson,
+        lastAssistantResponse = session.lastAssistantResponse,
+        selectedDocumentId = session.selectedDocumentId,
+        documentAnswerLength = session.documentAnswerLength
     )
 
     private fun fromEntity(entity: ChatSessionEntity) = ChatSession(
-        entity.id,
-        entity.title,
-        entity.createdAt,
-        entity.updatedAt,
-        entity.messagesText,
-        entity.lastAssistantResponse ?: "",
-        entity.selectedDocumentId,
-        entity.documentAnswerLength
+        id = entity.id,
+        title = entity.title,
+        createdAt = entity.createdAt,
+        updatedAt = entity.updatedAt,
+        messagesJson = entity.messagesText,
+        lastAssistantResponse = entity.lastAssistantResponse ?: "",
+        selectedDocumentId = entity.selectedDocumentId,
+        documentAnswerLength = entity.documentAnswerLength
     )
 }

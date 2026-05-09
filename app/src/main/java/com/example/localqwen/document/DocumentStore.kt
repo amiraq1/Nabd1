@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import com.example.localqwen.data.LocalDocumentEntity
 import com.example.localqwen.data.NabdDatabase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 class DocumentStore(
@@ -34,9 +33,9 @@ class DocumentStore(
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
             .truncateDocumentText(MAX_DOCUMENT_TEXT_CHARS)
-        
+
         if (normalizedText.isBlank()) return
-        
+
         val newDocument = document.copy(extractedText = normalizedText)
 
         withContext(Dispatchers.IO) {
@@ -66,19 +65,19 @@ class DocumentStore(
     }
 
     private fun toEntity(document: LocalDocument) = LocalDocumentEntity(
-        document.id,
-        document.title,
-        document.type,
-        document.extractedText,
-        document.createdAt
+        id = document.id,
+        title = document.title,
+        type = document.type,
+        extractedText = document.extractedText,
+        createdAt = document.createdAt
     )
 
     private fun fromEntity(entity: LocalDocumentEntity) = LocalDocument(
-        entity.id,
-        entity.title,
-        entity.type,
-        entity.extractedText,
-        entity.createdAt
+        id = entity.id,
+        title = entity.title,
+        type = entity.type,
+        extractedText = entity.extractedText,
+        createdAt = entity.createdAt
     )
 
     companion object {
