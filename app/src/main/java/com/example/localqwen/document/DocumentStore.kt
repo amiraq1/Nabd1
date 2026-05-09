@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import com.example.localqwen.data.LocalDocumentEntity
 import com.example.localqwen.data.NabdDatabase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 class DocumentStore(
@@ -17,44 +16,36 @@ class DocumentStore(
         NabdDatabase.getInstance(context)
     )
 
-    fun getDocuments(): List<LocalDocument> = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.localDocumentDao().getAllDocuments().map { fromEntity(it) }
-        }
+    suspend fun getDocuments(): List<LocalDocument> = withContext(Dispatchers.IO) {
+        db.localDocumentDao().getAllDocuments().map { fromEntity(it) }
     }
 
-    fun getDocument(documentId: String?): LocalDocument? {
+    suspend fun getDocument(documentId: String?): LocalDocument? {
         if (documentId.isNullOrBlank()) return null
-        return runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().getDocument(documentId)?.let { fromEntity(it) }
-            }
+        return withContext(Dispatchers.IO) {
+            db.localDocumentDao().getDocument(documentId)?.let { fromEntity(it) }
         }
     }
 
-    fun saveDocument(document: LocalDocument) {
+    suspend fun saveDocument(document: LocalDocument) {
         val normalizedText = document.extractedText
             .replace(Regex("[\\t\\x0B\\f\\r ]+"), " ")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
             .truncateDocumentText(MAX_DOCUMENT_TEXT_CHARS)
-        
+
         if (normalizedText.isBlank()) return
-        
+
         val newDocument = document.copy(extractedText = normalizedText)
 
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().insertOrUpdate(toEntity(newDocument))
-            }
+        withContext(Dispatchers.IO) {
+            db.localDocumentDao().insertOrUpdate(toEntity(newDocument))
         }
     }
 
-    fun deleteDocument(documentId: String) {
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().deleteById(documentId)
-            }
+    suspend fun deleteDocument(documentId: String) {
+        withContext(Dispatchers.IO) {
+            db.localDocumentDao().deleteById(documentId)
         }
         if (getSelectedDocumentId() == documentId) {
             clearSelectedDocumentId()
@@ -74,19 +65,19 @@ class DocumentStore(
     }
 
     private fun toEntity(document: LocalDocument) = LocalDocumentEntity(
-        document.id,
-        document.title,
-        document.type,
-        document.extractedText,
-        document.createdAt
+        id = document.id,
+        title = document.title,
+        type = document.type,
+        extractedText = document.extractedText,
+        createdAt = document.createdAt
     )
 
     private fun fromEntity(entity: LocalDocumentEntity) = LocalDocument(
-        entity.id,
-        entity.title,
-        entity.type,
-        entity.extractedText,
-        entity.createdAt
+        id = entity.id,
+        title = entity.title,
+        type = entity.type,
+        extractedText = entity.extractedText,
+        createdAt = entity.createdAt
     )
 
     companion object {

@@ -61,6 +61,10 @@ import com.example.localqwen.tools.PhoneToolIntent
 import com.example.localqwen.tools.PhoneToolManager
 import com.example.localqwen.tools.PhoneToolResult
 import com.example.localqwen.tools.PhoneToolRouter
+import com.example.localqwen.viewmodel.ChatViewModel
+import com.example.localqwen.viewmodel.ModelViewModel
+import com.example.localqwen.viewmodel.ModelState
+import com.example.localqwen.viewmodel.StatusEvent
 import com.example.localqwen.work.PdfProcessingWorker
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
@@ -72,6 +76,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import androidx.activity.viewModels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +98,10 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class MainActivity : AppCompatActivity() {
+    // --- ViewModels ---
+    private val chatViewModel: ChatViewModel by viewModels()
+    private val modelViewModel: ModelViewModel by viewModels()
+
     private lateinit var statusView: TextView
     private lateinit var rvChatMessages: RecyclerView
     private lateinit var chatAdapter: ChatAdapter
@@ -204,8 +213,6 @@ class MainActivity : AppCompatActivity() {
 
         migrateOldHistoryIfNeeded()
         loadActiveSession()
-        setStatusInfo(currentStatus())
-        renderChatHistory()
 
         optionsButton.setOnClickListener { showOptionsBottomSheet() }
         attachButton.setOnClickListener {
@@ -259,7 +266,7 @@ class MainActivity : AppCompatActivity() {
                 messagesJson = oldJson,
                 lastAssistantResponse = preferences.getString(KEY_CHAT_HISTORY_TEXT, "") ?: ""
             )
-            chatSessionStore.saveSession(session)
+            scope.launch { chatSessionStore.saveSession(session) }
             chatSessionStore.setActiveSessionId(session.id)
         }
     }
@@ -321,12 +328,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadActiveSession() {
-        val session = chatSessionStore.getActiveOrCreateSession()
-        chatMessages.clear()
-        chatMessages.addAll(loadChatMessages(session.messagesJson))
-        lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse, preserveMarkdown = true)
-        activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
-        session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+        scope.launch {
+            val session = chatSessionStore.getActiveOrCreateSession()
+            chatMessages.clear()
+            chatMessages.addAll(loadChatMessages(session.messagesJson))
+            lastAssistantResponse = cleanForDisplay(session.lastAssistantResponse, preserveMarkdown = true)
+            activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
+            session.selectedDocumentId?.let(documentStore::setSelectedDocumentId) ?: documentStore.clearSelectedDocumentId()
+            renderChatHistory()
+            setStatusInfo(currentStatus())
+        }
     }
 
     private fun loadChatMessages(rawMessages: String): MutableList<ChatMessage> {
@@ -435,7 +446,7 @@ class MainActivity : AppCompatActivity() {
         activeAssistantMessageIndex = -1
         chatAdapter.clearMessages()
         documentStore.clearSelectedDocumentId()
-        chatSessionStore.createNewSession()
+        scope.launch { chatSessionStore.createNewSession() }
         setStatusInfo("تم إنشاء محادثة جديدة")
         updateButtons()
     }
@@ -443,19 +454,17 @@ class MainActivity : AppCompatActivity() {
     private fun switchSession(id: String) {
         chatSessionStore.setActiveSessionId(id)
         loadActiveSession()
-        renderChatHistory()
-        setStatusInfo(currentStatus())
         updateButtons()
     }
 
     private fun currentStatus(): String {
-        val session = chatSessionStore.getActiveOrCreateSession()
+        val sessionTitle = chatSessionStore.getActiveSessionId()?.let { "المحادثة الحالية" } ?: "محادثة جديدة"
         val base = when {
             textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id -> "جاهز • ${selectedModel.displayName}"
             modelManager.isModelReady(selectedModel) -> "غير مشغّل • ${selectedModel.displayName}"
             else -> "غير مستورد • ${selectedModel.displayName}"
         }
-        return "المحادثة: ${session.title}\n$base"
+        return "$sessionTitle\n$base"
     }
 
     private fun currentModelStatusLabel(): String {
@@ -581,12 +590,12 @@ class MainActivity : AppCompatActivity() {
         statusView.setTextColor(ContextCompat.getColor(this, R.color.nabd_error))
     }
 
-    private fun getSelectedDocument(): LocalDocument? {
+    private suspend fun getSelectedDocument(): LocalDocument? {
         return documentStore.getDocument(documentStore.getSelectedDocumentId())
     }
 
     private fun currentDocumentAnswerLength(): String {
-        return chatSessionStore.getActiveOrCreateSession().documentAnswerLength ?: "short"
+        return preferences.getString("document_answer_length", "short") ?: "short"
     }
 
     private fun currentRagMode(): RagMode {
@@ -633,10 +642,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateDocumentAnswerLength(value: String) {
-        val session = chatSessionStore.getActiveOrCreateSession()
-        session.documentAnswerLength = value
-        session.updatedAt = System.currentTimeMillis()
-        chatSessionStore.saveSession(session)
+        preferences.edit().putString("document_answer_length", value).apply()
+        scope.launch {
+            val session = chatSessionStore.getActiveOrCreateSession()
+            session.documentAnswerLength = value
+            session.updatedAt = System.currentTimeMillis()
+            chatSessionStore.saveSession(session)
+        }
         setStatusSuccess("تم ضبط طول إجابة المستند: ${documentAnswerLengthLabel(value)}")
     }
 
@@ -734,7 +746,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildBetaReport(): String {
+    private suspend fun buildBetaReport(): String {
         val packageInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
         val versionName = packageInfo?.versionName ?: "غير معروف"
         val versionCode = packageInfo?.let {
@@ -822,7 +834,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun countSavedDocuments(): Int {
+    private suspend fun countSavedDocuments(): Int {
         val raw = preferences.getString("local_documents_json", null).orEmpty()
         if (raw.isBlank()) return 0
         return runCatching { org.json.JSONArray(raw).length() }.getOrElse { documentStore.getDocuments().size }
@@ -850,7 +862,7 @@ class MainActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
-    private fun saveExtractedDocument(title: String, type: String, text: String) {
+    private suspend fun saveExtractedDocument(title: String, type: String, text: String) {
         if (text.isBlank()) return
         val document = LocalDocument(
             id = UUID.randomUUID().toString(),
@@ -929,7 +941,7 @@ class MainActivity : AppCompatActivity() {
             .ifEmpty { scored.take(MAX_RETRIEVED_CHUNKS) }
     }
 
-    private fun retrieveDocumentChunks(query: String): DocumentRetrievalOutcome {
+    private suspend fun retrieveDocumentChunks(query: String): DocumentRetrievalOutcome {
         val document = getSelectedDocument() ?: return DocumentRetrievalOutcome()
         val keywordResults = { retrieveKeywordDocumentChunks(document, query) }
 
@@ -991,7 +1003,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildDocumentContext(query: String): DocumentContextResult {
+    private suspend fun buildDocumentContext(query: String): DocumentContextResult {
         val outcome = retrieveDocumentChunks(query)
         if (outcome.chunks.isEmpty()) {
             return DocumentContextResult(
@@ -1051,7 +1063,7 @@ class MainActivity : AppCompatActivity() {
         isPreparingDocumentContext = true
         updateButtons()
         setStatusInfo(
-            if (getSelectedDocument() != null) {
+            if (documentStore.getSelectedDocumentId() != null) {
                 "جاري تجهيز سياق المستند..."
             } else {
                 DEFAULT_GENERATION_STATUS
@@ -1116,7 +1128,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
         val cleanedText = cleanForDisplay(text, preserveMarkdown = preserveMarkdown)
-        chatMessages[activeAssistantMessageIndex].text = cleanedText
+        chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(text = cleanedText)
         chatAdapter.updateLastAssistantMessage(cleanedText, renderMarkdown = renderMarkdown)
         if (forceScroll) {
             scrollChatToBottom()
@@ -1226,7 +1238,6 @@ class MainActivity : AppCompatActivity() {
                                     snapshot,
                                     preserveMarkdown = preserveMarkdownOutput
                                 )
-                                assistant.text = cleanedSnapshot
                                 updateAssistantMessage(
                                     text = cleanedSnapshot,
                                     preserveMarkdown = preserveMarkdownOutput,
@@ -1241,7 +1252,6 @@ class MainActivity : AppCompatActivity() {
                     output.toString(),
                     preserveMarkdown = preserveMarkdownOutput
                 ).ifBlank { "(فارغ)" }
-                assistant.text = finalText
                 lastAssistantResponse = finalText
                 lastResponseCharCount = finalText.length
                 val generationFinishedAt = SystemClock.elapsedRealtime()
@@ -1524,23 +1534,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openSettingsPage() {
-        val session = chatSessionStore.getActiveOrCreateSession()
-        val intent = SettingsActivity.createIntent(
-            context = this,
-            modelDescription = selectedModel.displayName,
-            modelStatus = currentModelStatusLabel(),
-            modelE2bStatus = modelImportStatus(modelById(MODEL_ID_E2B)),
-            modelE4bStatus = modelImportStatus(modelById(MODEL_ID_E4B)),
-            documentAnswerLength = currentDocumentAnswerLength(),
-            ragSearchMode = currentRagMode().name.lowercase(Locale.US),
-            embeddingBackend = currentEmbeddingBackend().name.lowercase(Locale.US),
-            embeddingModelStatus = embeddingModelSettingsStatus(),
-            embeddingIndexCount = embeddingStore.countIndexes(),
-            selectedDocumentTitle = getSelectedDocument()?.title,
-            sessionTitle = session.title,
-            appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
-        )
-        startActivityForResult(intent, settingsRequestCode)
+        scope.launch {
+            val session = chatSessionStore.getActiveOrCreateSession()
+            val selectedDoc = getSelectedDocument()
+            val intent = SettingsActivity.createIntent(
+                context = this@MainActivity,
+                modelDescription = selectedModel.displayName,
+                modelStatus = currentModelStatusLabel(),
+                modelE2bStatus = modelImportStatus(modelById(MODEL_ID_E2B)),
+                modelE4bStatus = modelImportStatus(modelById(MODEL_ID_E4B)),
+                documentAnswerLength = currentDocumentAnswerLength(),
+                ragSearchMode = currentRagMode().name.lowercase(Locale.US),
+                embeddingBackend = currentEmbeddingBackend().name.lowercase(Locale.US),
+                embeddingModelStatus = embeddingModelSettingsStatus(),
+                embeddingIndexCount = embeddingStore.countIndexes(),
+                selectedDocumentTitle = selectedDoc?.title,
+                sessionTitle = session.title,
+                appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+            )
+            startActivityForResult(intent, settingsRequestCode)
+        }
     }
 
     private fun showToolsCenter() {
@@ -2856,7 +2869,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun performLocalDocumentSearch(query: String): String {
+    private suspend fun performLocalDocumentSearch(query: String): String {
         val normalizedQuery = query.trim()
         if (normalizedQuery.isEmpty()) return "يرجى تحديد عبارة البحث."
 
@@ -2891,7 +2904,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun performCurrentDocumentSummary(): String {
+    private suspend fun performCurrentDocumentSummary(): String {
         val document = getSelectedDocument() ?: return "لا يوجد مستند محدد"
         val excerpt = document.extractedText
             .replace(Regex("\\s+"), " ")
@@ -3210,7 +3223,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("حفظ") { _, _ ->
                 val newTitle = input.text.toString().trim()
                 if (newTitle.isNotEmpty()) {
-                    chatSessionStore.renameSession(session.id, newTitle)
+                    scope.launch { chatSessionStore.renameSession(session.id, newTitle) }
                     session.title = newTitle
                     onRenamed()
                 }
@@ -3224,18 +3237,20 @@ class MainActivity : AppCompatActivity() {
             .setTitle("حذف المحادثة؟")
             .setMessage("هل أنت متأكد من حذف هذه المحادثة؟")
             .setPositiveButton("حذف") { _, _ ->
-                chatSessionStore.deleteSession(session.id)
-                if (chatSessionStore.getActiveSessionId() == session.id) {
-                    chatSessionStore.setActiveSessionId(null)
-                    val sessions = chatSessionStore.getAllSessions()
-                    if (sessions.isNotEmpty()) {
-                        switchSession(sessions.first().id)
-                    } else {
-                        chatMessages.clear()
-                        chatAdapter.notifyDataSetChanged()
+                scope.launch {
+                    chatSessionStore.deleteSession(session.id)
+                    if (chatSessionStore.getActiveSessionId() == session.id) {
+                        chatSessionStore.setActiveSessionId(null)
+                        val sessions = chatSessionStore.getAllSessions()
+                        if (sessions.isNotEmpty()) {
+                            switchSession(sessions.first().id)
+                        } else {
+                            chatMessages.clear()
+                            chatAdapter.submitMessages(emptyList())
+                        }
                     }
+                    onDeleted()
                 }
-                onDeleted()
             }
             .setNegativeButton("إلغاء", null)
             .show()
@@ -3489,24 +3504,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun confirmBuildSelectedDocumentSemanticIndex() {
-        val document = getSelectedDocument()
-        if (document == null) {
-            setStatusError("اختر مستندًا أولًا.")
-            return
-        }
-        if (!embeddingModelManager.isEmbeddingModelReady()) {
-            setStatusError("استورد نموذج التضمين أولًا.")
-            return
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("إنشاء فهرس دلالي")
-            .setMessage("سيتم إنشاء فهرس دلالي محلي لهذا المستند. قد يستغرق بعض الوقت.")
-            .setPositiveButton("بدء") { _, _ ->
-                buildSemanticIndex(document)
+        scope.launch {
+            val document = getSelectedDocument()
+            if (document == null) {
+                setStatusError("اختر مستندًا أولًا.")
+                return@launch
             }
-            .setNegativeButton("إلغاء", null)
-            .show()
+            if (!embeddingModelManager.isEmbeddingModelReady()) {
+                setStatusError("استورد نموذج التضمين أولًا.")
+                return@launch
+            }
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("إنشاء فهرس دلالي")
+                .setMessage("سيتم إنشاء فهرس دلالي محلي لهذا المستند. قد يستغرق بعض الوقت.")
+                .setPositiveButton("بدء") { _, _ ->
+                    buildSemanticIndex(document)
+                }
+                .setNegativeButton("إلغاء", null)
+                .show()
+        }
     }
 
     private fun buildSemanticIndex(document: LocalDocument) {
@@ -3702,14 +3719,12 @@ class MainActivity : AppCompatActivity() {
                                             lastRenderedRawLength = output.length
                                             withContext(Dispatchers.Main) {
                                                 val cleanedSnapshot = cleanForDisplay(snapshot, preserveMarkdown = true)
-                                                assistant.text = cleanedSnapshot
                                                 updateAssistantMessage(cleanedSnapshot, preserveMarkdown = true, renderMarkdown = false)
                                             }
                                         }
                                     }
                                 }
                                 val finalText = cleanForDisplay(output.toString(), preserveMarkdown = true).ifBlank { "(فارغ)" }
-                                assistant.text = finalText
                                 lastAssistantResponse = finalText
                                 updateAssistantMessage(finalText, forceScroll = true, preserveMarkdown = true, renderMarkdown = true)
                                 setStatusSuccess("تم التحليل بنموذج الرؤية.")
@@ -3719,7 +3734,7 @@ class MainActivity : AppCompatActivity() {
                                 withContext(Dispatchers.Main) {
                                     chatMessages.removeLast()
                                     chatMessages.removeLast()
-                                    chatAdapter.notifyDataSetChanged()
+                                    chatAdapter.submitMessages(chatMessages.toList())
                                     executeImageAskOcrFlow(uri)
                                 }
                             } finally {
