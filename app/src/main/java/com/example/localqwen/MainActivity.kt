@@ -36,6 +36,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.example.localqwen.attachments.PdfMessageFormatter
 import com.example.localqwen.chat.ChatAdapter
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.ChatSession
@@ -2570,7 +2571,7 @@ class MainActivity : AppCompatActivity() {
         sortedInfos.forEachIndexed { index, workInfo ->
             val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
                 ?: workInfo.progress.getString(PdfProcessingWorker.KEY_PDF_TITLE)
-                ?: DEFAULT_PDF_TITLE
+                ?: PdfMessageFormatter.defaultPdfTitle()
             val value = buildPdfTaskDetails(workInfo)
             appendDiagnosticsField(
                 container = container,
@@ -3810,7 +3811,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processPdfUri(uri: Uri) {
-        val title = getDisplayName(uri) ?: DEFAULT_PDF_TITLE
+        val title = getDisplayName(uri) ?: PdfMessageFormatter.defaultPdfTitle()
         val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
             .addTag(PDF_PROCESSING_TAG)
             .setInputData(
@@ -3821,9 +3822,9 @@ class MainActivity : AppCompatActivity() {
             )
             .build()
 
-        addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تمت إضافة ملف PDF للمعالجة في الخلفية..."))
+        addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfQueuedMessage(title)))
         saveActiveSessionDebounced(immediate = true)
-        setStatusInfo("جاري تحليل ملف PDF في الخلفية...")
+        setStatusInfo(PdfMessageFormatter.pdfRunningStatus())
 
         workManager.enqueue(request)
         observePdfProcessing(request.id)
@@ -3838,21 +3839,21 @@ class MainActivity : AppCompatActivity() {
                     val page = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_PAGE, 0)
                     val total = workInfo.progress.getInt(PdfProcessingWorker.KEY_PROGRESS_TOTAL, 0)
                     if (page > 0 && total > 0) {
-                        setStatusInfo("جاري استخراج النص من الصفحة $page من $total...")
+                        setStatusInfo(PdfMessageFormatter.pdfProgressStatus(page, total))
                     } else {
-                        setStatusInfo("جاري تحليل ملف PDF في الخلفية...")
+                        setStatusInfo(PdfMessageFormatter.pdfRunningStatus())
                     }
                 }
 
                 WorkInfo.State.SUCCEEDED -> {
                     if (!handledPdfWorkIds.add(workId)) return@observe
                     val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
-                        ?: DEFAULT_PDF_TITLE
+                        ?: PdfMessageFormatter.defaultPdfTitle()
                     val extractedChars = workInfo.outputData.getInt(PdfProcessingWorker.KEY_EXTRACTED_CHARS, 0)
                     addChatMessage(
                         ChatMessage(
                             role = Role.SYSTEM,
-                            text = "تم تحليل ملف PDF وحفظه في مكتبة المستندات: $title\nعدد الأحرف المستخرجة: $extractedChars"
+                            text = PdfMessageFormatter.pdfSuccessMessage(title, extractedChars)
                         )
                     )
                     saveActiveSessionDebounced(immediate = true)
@@ -3863,16 +3864,16 @@ class MainActivity : AppCompatActivity() {
                     if (!handledPdfWorkIds.add(workId)) return@observe
                     val error = workInfo.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE)
                         ?: "تعذر تحليل ملف PDF"
-                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تعذر تحليل ملف PDF: $error"))
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfFailureMessage(error)))
                     saveActiveSessionDebounced(immediate = true)
                     setStatusError(error)
                 }
 
                 WorkInfo.State.CANCELLED -> {
                     if (!handledPdfWorkIds.add(workId)) return@observe
-                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = "تم إلغاء تحليل ملف PDF"))
+                    addChatMessage(ChatMessage(role = Role.SYSTEM, text = PdfMessageFormatter.pdfCancelledMessage()))
                     saveActiveSessionDebounced(immediate = true)
-                    setStatusError("تم إلغاء تحليل ملف PDF")
+                    setStatusError(PdfMessageFormatter.pdfCancelledMessage())
                 }
 
                 else -> Unit
@@ -3959,7 +3960,6 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_DOCUMENT_SEARCH_RESULTS = 5
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
-        private const val DEFAULT_PDF_TITLE = "ملف PDF"
         private const val PDF_PROCESSING_TAG = "pdf_processing"
         private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
         private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
