@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/optionRow"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -15,20 +16,18 @@
     android:paddingEnd="12dp"
     android:paddingBottom="8dp">
 
-    <TextView
-        android:id="@+id/tvOptionIcon"
+    <ImageView
+        android:id="@+id/ivOptionIcon"
         android:layout_width="24dp"
-        android:layout_height="wrap_content"
-        android:alpha="1.0"
-        android:gravity="center"
-        android:textColor="@color/nabd_text_secondary"
-        android:textDirection="locale"
-        android:textSize="15sp" />
+        android:layout_height="24dp"
+        android:layout_gravity="center"
+        android:scaleType="fitCenter"
+        app:tint="@color/nabd_text_secondary" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="16dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -53,14 +52,12 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvOptionChevron"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+    <ImageView
+        android:id="@+id/ivOptionChevron"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
         android:layout_marginStart="8dp"
-        android:alpha="1.0"
-        android:text="‹"
-        android:textColor="#6A6A6A"
-        android:textDirection="locale"
-        android:textSize="20sp" />
+        android:alpha="0.5"
+        android:src="@drawable/ic_chevron_left"
+        app:tint="@color/icon_chevron_tint" />
 </LinearLayout>

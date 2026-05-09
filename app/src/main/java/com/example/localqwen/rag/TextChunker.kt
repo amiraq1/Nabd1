@@ -1,10 +1,15 @@
 package com.example.localqwen.rag
 
 object TextChunker {
+    // قيم التقطيع الافتراضية - يمكن ضبطها بناءً على قدرة النموذج على استيعاب السياق
+    const val DEFAULT_CHUNK_SIZE_CHARS = 800
+    const val DEFAULT_CHUNK_OVERLAP_CHARS = 200
+    private const val MAX_CHUNKS = 300
+
     fun chunkText(
         text: String,
-        maxChars: Int = 800,
-        overlapChars: Int = 120
+        maxChars: Int = DEFAULT_CHUNK_SIZE_CHARS,
+        overlapChars: Int = DEFAULT_CHUNK_OVERLAP_CHARS
     ): List<String> {
         val normalized = text
             .replace(Regex("[\\t\\x0B\\f\\r ]+"), " ")
@@ -46,6 +51,4 @@ object TextChunker {
 
         return chunks
     }
-
-    private const val MAX_CHUNKS = 300
 }

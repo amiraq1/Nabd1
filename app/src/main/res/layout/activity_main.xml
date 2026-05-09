@@ -141,8 +141,6 @@
                 android:clickable="true"
                 android:contentDescription="إضافة ملف"
                 android:focusable="true"
-                android:gravity="center"
-                android:includeFontPadding="false"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
                 android:insetLeft="0dp"
@@ -150,11 +148,12 @@
                 android:minWidth="0dp"
                 android:minHeight="0dp"
                 android:padding="0dp"
-                android:text="+"
-                android:textColor="@color/nabd_on_surface"
-                android:textSize="24sp"
                 app:backgroundTint="@color/nabd_outline"
-                app:iconPadding="0dp" />
+                app:icon="@drawable/ic_add"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconSize="24dp"
+                app:iconTint="@color/nabd_on_surface" />
 
             <EditText
                 android:id="@+id/etMessage"
@@ -191,8 +190,6 @@
                 android:clickable="true"
                 android:contentDescription="إرسال النبض"
                 android:focusable="true"
-                android:gravity="center"
-                android:includeFontPadding="false"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
                 android:insetLeft="0dp"
@@ -200,12 +197,13 @@
                 android:minWidth="0dp"
                 android:minHeight="0dp"
                 android:padding="0dp"
-                android:text="↑"
-                android:textColor="@color/nabd_on_primary"
-                android:textSize="22sp"
-                app:cornerRadius="22dp"
                 app:backgroundTint="@color/nabd_primary"
-                app:iconPadding="0dp" />
+                app:cornerRadius="22dp"
+                app:icon="@drawable/ic_send"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconSize="24dp"
+                app:iconTint="@color/nabd_on_primary" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

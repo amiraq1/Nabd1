@@ -17,22 +17,18 @@ class DocumentStore(
         NabdDatabase.getInstance(context)
     )
 
-    fun getDocuments(): List<LocalDocument> = runBlocking {
-        withContext(Dispatchers.IO) {
-            db.localDocumentDao().getAllDocuments().map { fromEntity(it) }
-        }
+    suspend fun getDocuments(): List<LocalDocument> = withContext(Dispatchers.IO) {
+        db.localDocumentDao().getAllDocuments().map { fromEntity(it) }
     }
 
-    fun getDocument(documentId: String?): LocalDocument? {
+    suspend fun getDocument(documentId: String?): LocalDocument? {
         if (documentId.isNullOrBlank()) return null
-        return runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().getDocument(documentId)?.let { fromEntity(it) }
-            }
+        return withContext(Dispatchers.IO) {
+            db.localDocumentDao().getDocument(documentId)?.let { fromEntity(it) }
         }
     }
 
-    fun saveDocument(document: LocalDocument) {
+    suspend fun saveDocument(document: LocalDocument) {
         val normalizedText = document.extractedText
             .replace(Regex("[\\t\\x0B\\f\\r ]+"), " ")
             .replace(Regex("\\n{3,}"), "\n\n")
@@ -43,18 +39,14 @@ class DocumentStore(
         
         val newDocument = document.copy(extractedText = normalizedText)
 
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().insertOrUpdate(toEntity(newDocument))
-            }
+        withContext(Dispatchers.IO) {
+            db.localDocumentDao().insertOrUpdate(toEntity(newDocument))
         }
     }
 
-    fun deleteDocument(documentId: String) {
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                db.localDocumentDao().deleteById(documentId)
-            }
+    suspend fun deleteDocument(documentId: String) {
+        withContext(Dispatchers.IO) {
+            db.localDocumentDao().deleteById(documentId)
         }
         if (getSelectedDocumentId() == documentId) {
             clearSelectedDocumentId()

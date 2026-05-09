@@ -12,6 +12,8 @@ class ModelManager(private val context: Context) {
     )
 
     companion object {
+        const val MIN_MODEL_SIZE_BYTES = 50_000_000L // 50MB فحص تقريبي أولي لا يغني عن تحقق المحرك
+
         val VISION_MODEL = SupportedModel(
             id = "fastvlm_0_5b",
             displayName = "FastVLM 0.5B",
@@ -57,6 +59,23 @@ class ModelManager(private val context: Context) {
         return targetFile
     }
 
+    fun tempModelFile(model: SupportedModel): File {
+        return File(modelDir(model), "model.litertlm.tmp")
+    }
+
+    fun cleanTempFiles() {
+        try {
+            val modelsDir = File(context.filesDir, "models")
+            if (modelsDir.exists()) {
+                modelsDir.walkTopDown().forEach { file ->
+                    if (file.isFile && file.name.endsWith(".tmp")) {
+                        file.delete()
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
     fun getModelFile(modelId: String): File? {
         val model = getModelById(modelId) ?: return null
         return modelFile(model)
@@ -64,14 +83,19 @@ class ModelManager(private val context: Context) {
 
     fun modelPath(model: SupportedModel): String = modelFile(model).absolutePath
 
+    fun isModelFileExtensionValid(fileName: String?): Boolean {
+        return fileName?.endsWith(".litertlm", ignoreCase = true) == true
+    }
+
     fun isModelReady(model: SupportedModel): Boolean {
         val file = modelFile(model)
-        return file.exists() && file.length() > 10_000_000
+        // التحقق من وجود الملف النهائي فقط وبحجم معقول
+        return file.exists() && file.isFile && file.length() >= MIN_MODEL_SIZE_BYTES
     }
 
     fun isModelImported(modelId: String): Boolean {
         val file = getModelFile(modelId) ?: return false
-        return file.exists() && file.isFile && file.length() > 0L
+        return file.exists() && file.isFile && file.length() >= 10_000_000
     }
 
     fun modelSizeBytes(modelId: String): Long {

@@ -8,7 +8,8 @@ data class RetrievedChunk(
     val documentTitle: String,
     val chunkIndex: Int,
     val text: String,
-    val score: Int
+    val score: Int,
+    val similarity: Float = 0f // للتشخيص
 )
 
 class SemanticRetriever(
@@ -18,8 +19,12 @@ class SemanticRetriever(
     @Volatile
     private var lastFailureReason: String? = null
 
+    @Volatile
+    private var lastRejectedCount: Int = 0
+
     fun retrieveSemantic(documentId: String?, query: String): List<RetrievedChunk> {
         lastFailureReason = null
+        lastRejectedCount = 0
 
         if (documentId.isNullOrBlank()) return emptyList()
         if (query.isBlank()) return emptyList()
@@ -40,18 +45,20 @@ class SemanticRetriever(
 
             if (scoredChunks.isEmpty()) {
                 emptyList()
-            } else if (scoredChunks.first().similarity < MIN_SEMANTIC_SIMILARITY) {
-                emptyList()
             } else {
-                scoredChunks
-                    .take(MAX_RETRIEVED_CHUNKS)
+                val accepted = scoredChunks.filter { it.similarity >= DEFAULT_RAG_SIMILARITY_THRESHOLD }
+                lastRejectedCount = scoredChunks.size - accepted.size
+                
+                accepted
+                    .take(DEFAULT_RAG_TOP_K)
                     .map { scored ->
                         RetrievedChunk(
                             documentId = index.documentId,
                             documentTitle = "",
                             chunkIndex = scored.chunk.chunkIndex,
                             text = scored.chunk.text,
-                            score = (scored.similarity * SCORE_SCALE).roundToInt()
+                            score = (scored.similarity * SCORE_SCALE).roundToInt(),
+                            similarity = scored.similarity
                         )
                     }
             }
@@ -65,6 +72,8 @@ class SemanticRetriever(
     }
 
     fun lastFailureReason(): String? = lastFailureReason
+
+    fun lastRejectedCount(): Int = lastRejectedCount
 
     private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float? {
         if (a.size != b.size || a.isEmpty()) {
@@ -95,8 +104,12 @@ class SemanticRetriever(
     )
 
     companion object {
-        private const val MAX_RETRIEVED_CHUNKS = 3
+        // عدد المقاطع المسترجعة (K) - 6 مقاطع توفر سياقاً جيداً لمعظم النماذج
+        const val DEFAULT_RAG_TOP_K = 6
+        
+        // الحد الأدنى للتشابه - 0.35 تضمن جودة المقتطفات مع استبعاد المحتوى غير ذي الصلة
+        const val DEFAULT_RAG_SIMILARITY_THRESHOLD = 0.35f
+        
         private const val SCORE_SCALE = 1000f
-        private const val MIN_SEMANTIC_SIMILARITY = 0.05f
     }
 }

@@ -1,0 +1,108 @@
+    companion object {
+        private const val MODEL_ID_E2B = "gemma_e2b"
+        private const val MODEL_ID_E4B = "gemma_e4b"
+        private const val KEY_CHAT_HISTORY_TEXT = "chat_history_text"
+        private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
+        private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
+        private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
+        private const val KEY_EMBEDDING_BACKEND = "embedding_backend"
+        private const val MAX_DOCUMENT_CONTEXT_CHARS = 5_000
+        private const val DOCUMENT_CHUNK_SIZE = 1_200
+        private const val DOCUMENT_TEXT_LIMIT = 200_000
+        private const val PROMPT_TEXT_LIMIT = 6_000
+        private const val STREAM_UPDATE_MIN_CHARS = 48
+        private const val MAX_SEMANTIC_INDEX_CHUNKS = 300
+        private const val MAX_DOCUMENT_SEARCH_RESULTS = 5
+        private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
+        private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
+        private const val DEFAULT_PDF_TITLE = "ملف PDF"
+        private const val PDF_PROCESSING_TAG = "pdf_processing"
+        private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
+        private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
+        private const val SEMANTIC_GENERATION_STATUS = "تم استخدام البحث الدلالي • جاري التوليد..."
+        private const val BACKGROUND_TASKS_MAX_PDF_ITEMS = 8
+        private const val SEMANTIC_INDEX_STATUS_IDLE = "idle"
+        private const val SEMANTIC_INDEX_STATUS_RUNNING = "running"
+        private const val SEMANTIC_INDEX_STATUS_SUCCESS = "success"
+        private const val SEMANTIC_INDEX_STATUS_FAILED = "failed"
+        private const val ATTACH_BUTTON_PRESS_DURATION_MS = 120L
+        private const val SEND_BUTTON_PULSE_DURATION_MS = 420L
+        private const val TYPING_PULSE_DURATION_MS = 680L
+        private const val LOCAL_MODEL_TEST_MAX_OUTPUT_CHARS = 240
+        private const val LOCAL_MODEL_SHORT_TEST_PROMPT =
+            "اكتب جملة عربية قصيرة جدًا من 4 إلى 6 كلمات فقط."
+        private const val LOCAL_MODEL_SPEED_TEST_PROMPT =
+            "اكتب قائمة من 1 إلى 10 بالأرقام فقط في سطر واحد."
+        private const val SEMANTIC_FALLBACK_GENERATION_STATUS =
+            "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+    }
+}
+
+private data class RagDiagnosticsData(
+    val ragModeLabel: String,
+    val embeddingBackendLabel: String,
+    val embeddingModelImported: Boolean,
+    val embeddingModelDisplayPath: String,
+    val selectedDocumentTitle: String,
+    val indexInfo: EmbeddingStore.EmbeddingIndexInfo?,
+    val lastState: String,
+    val canBuildIndex: Boolean,
+    val lastOperation: LastRagOperationResult? = null
+)
+
+private data class LastRagOperationResult(
+    val query: String,
+    val chunks: List<com.example.localqwen.rag.RetrievedChunk>,
+    val rejectedCount: Int,
+    val fullContextSentToModel: String
+)
+
+private data class LiteRtDiagnosticsData(
+    val currentModelLabel: String,
+    val modelStatusLabel: String,
+    val importedModelSizeLabel: String,
+    val modelFileLabel: String,
+    val engineStatusLabel: String,
+    val lastResponseLatencyLabel: String,
+    val lastGenerationDurationLabel: String,
+    val lastResponseCharCountLabel: String,
+    val backendLabel: String
+)
+
+private data class LocalModelProbeResult(
+    val success: Boolean,
+    val firstTokenLatencyMs: Long? = null,
+    val totalDurationMs: Long? = null,
+    val responseCharCount: Int? = null,
+    val errorMessage: String? = null
+)
+
+private enum class LocalModelQuickTestType(val label: String) {
+    SHORT_GENERATION("اختبار التوليد القصير"),
+    MEMORY("اختبار الذاكرة"),
+    SPEED("اختبار السرعة")
+}
+
+private data class DocumentRetrievalOutcome(
+    val chunks: List<com.example.localqwen.rag.RetrievedChunk> = emptyList(),
+    val generationStatus: String = "جاري التوليد..."
+)
+
+private data class DocumentContextResult(
+    val context: String?,
+    val generationStatus: String
+)
+
+private fun String.safeTruncate(maxChars: Int): String {
+    return if (length <= maxChars) this else take(maxChars)
+}
+
+private class SimpleTextWatcher(
+    private val onTextChangedAction: () -> Unit
+) : android.text.TextWatcher {
+    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+        onTextChangedAction()
+    }
+    override fun afterTextChanged(s: android.text.Editable?) = Unit
+}

@@ -17,14 +17,19 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
 
     override suspend fun load(modelPath: String, cacheDir: String) {
         withContext(Dispatchers.IO) {
-            unload()
-            val config = EngineConfig(
-                modelPath = modelPath,
-                cacheDir = cacheDir,
-                backend = Backend.CPU()
-            )
-            engine = Engine(config).apply { initialize() }
-            conversation = engine?.createConversation()
+            try {
+                unload()
+                val config = EngineConfig(
+                    modelPath = modelPath,
+                    cacheDir = cacheDir,
+                    backend = Backend.CPU()
+                )
+                engine = Engine(config).apply { initialize() }
+                conversation = engine?.createConversation()
+            } catch (e: Exception) {
+                unload()
+                throw e
+            }
         }
     }
 

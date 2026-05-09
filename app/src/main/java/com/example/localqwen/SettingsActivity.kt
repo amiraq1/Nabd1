@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.content.res.ColorStateList
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -85,7 +87,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun populateSettings() {
         addOptionRow(
             sectionModel,
-            "◉",
+            R.drawable.ic_model,
             "النموذج الحالي",
             buildString {
                 append(currentModelDescription.ifBlank { "غير محدد" })
@@ -97,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionModel,
-            "E",
+            R.drawable.ic_e2b,
             "Gemma E2B",
             currentModelE2bStatus.ifBlank { "غير مستورد" }
         ) {
@@ -105,14 +107,14 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionModel,
-            "E",
+            R.drawable.ic_e2b,
             "Gemma E4B",
             currentModelE4bStatus.ifBlank { "غير مستورد" }
         ) {
             finishWithAction(ACTION_MANAGE_MODEL_E4B)
         }
         
-        val visionIcon = if (currentModelVisionStatus.startsWith("مستورد")) "V" else "⇩"
+        val visionIcon = if (currentModelVisionStatus.startsWith("مستورد")) R.drawable.ic_vision else R.drawable.ic_download
         addOptionRow(
             sectionModel,
             visionIcon,
@@ -127,7 +129,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionModel,
-            "؟",
+            R.drawable.ic_help,
             "تشخيص نموذج الذكاء",
             "حالة النموذج والأداء"
         ) {
@@ -136,7 +138,7 @@ class SettingsActivity : AppCompatActivity() {
 
         addOptionRow(
             sectionDocuments,
-            "≡",
+            R.drawable.ic_settings,
             "طول إجابة المستند",
             documentAnswerLengthLabel(currentDocumentAnswerLength)
         ) {
@@ -144,7 +146,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "⌕",
+            R.drawable.ic_search,
             "وضع البحث في المستندات",
             ragSearchModeLabel(currentRagSearchMode)
         ) {
@@ -152,7 +154,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "⬢",
+            R.drawable.ic_diagnostics,
             "نموذج التضمين",
             embeddingModelStatus.ifBlank { "غير مستورد" }
         ) {
@@ -160,7 +162,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "⇩",
+            R.drawable.ic_download,
             "استيراد نموذج التضمين",
             if (embeddingModelStatus.startsWith("مستورد")) {
                 "استبدال النموذج الحالي"
@@ -173,7 +175,7 @@ class SettingsActivity : AppCompatActivity() {
         if (embeddingModelStatus.startsWith("مستورد")) {
             addOptionRow(
                 sectionDocuments,
-                "⌫",
+                R.drawable.ic_delete,
                 "حذف نموذج التضمين",
                 "إزالة النموذج المحلي والإبقاء على البحث النصي"
             ) {
@@ -182,7 +184,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "⚙",
+            R.drawable.ic_settings,
             "محرك التضمين",
             embeddingBackendLabel(currentEmbeddingBackend)
         ) {
@@ -190,7 +192,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "≈",
+            R.drawable.ic_sync,
             "إنشاء فهرس دلالي للمستند",
             selectedDocumentTitle ?: "اختر مستندًا أولًا"
         ) {
@@ -199,7 +201,7 @@ class SettingsActivity : AppCompatActivity() {
         if (embeddingIndexCount > 0) {
             addOptionRow(
                 sectionDocuments,
-                "⌦",
+                R.drawable.ic_delete,
                 "حذف الفهارس الدلالية",
                 "عدد الفهارس: $embeddingIndexCount"
             ) {
@@ -208,7 +210,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionDocuments,
-            "؟",
+            R.drawable.ic_help,
             "تشخيص البحث الدلالي",
             "حالة نموذج التضمين والفهرس"
         ) {
@@ -218,7 +220,7 @@ class SettingsActivity : AppCompatActivity() {
         if (!selectedDocumentTitle.isNullOrBlank()) {
             addOptionRow(
                 sectionDocuments,
-                "×",
+                R.drawable.ic_delete,
                 "إلغاء اختيار المستند",
                 selectedDocumentTitle
             ) {
@@ -228,23 +230,23 @@ class SettingsActivity : AppCompatActivity() {
 
         addOptionRow(
             sectionConversation,
-            "×",
+            R.drawable.ic_delete,
             "مسح المحادثة الحالية",
             titleColor = ContextCompat.getColor(this, R.color.nabd_error),
-            iconColor = ContextCompat.getColor(this, R.color.nabd_error)
+            iconColor = ContextCompat.getColor(this, R.color.icon_danger_tint)
         ) {
             finishWithAction(ACTION_CLEAR_CHAT)
         }
-        addOptionRow(sectionConversation, "⧉", "نسخ المحادثة") {
+        addOptionRow(sectionConversation, R.drawable.ic_copy, "نسخ المحادثة") {
             finishWithAction(ACTION_COPY_CHAT)
         }
-        addOptionRow(sectionConversation, "⧉", "نسخ آخر رد") {
+        addOptionRow(sectionConversation, R.drawable.ic_copy, "نسخ آخر رد") {
             finishWithAction(ACTION_COPY_LAST_RESPONSE)
         }
 
         addOptionRow(
             sectionApp,
-            "◷",
+            R.drawable.ic_history,
             "مهام الخلفية",
             "حالة تحليل PDF والفهرسة الدلالية"
         ) {
@@ -252,7 +254,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionApp,
-            "◉",
+            R.drawable.ic_model,
             "إدارة النماذج المحلية",
             "عرض النموذج الحالي، الحالة، الحجم، والاختبارات"
         ) {
@@ -260,7 +262,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionApp,
-            "⧉",
+            R.drawable.ic_copy,
             "نسخ تقرير بيتا",
             "معلومات الجهاز والنموذج والأداء بدون بياناتك الخاصة"
         ) {
@@ -268,7 +270,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         addOptionRow(
             sectionApp,
-            "؟",
+            R.drawable.ic_help,
             "حول نبض",
             "الإصدار: $appVersion"
         ) {
@@ -344,7 +346,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun addOptionRow(
         container: LinearLayout,
-        icon: String,
+        iconRes: Int,
         title: String,
         subtitle: String? = null,
         titleColor: Int = ContextCompat.getColor(this, R.color.nabd_on_surface),
@@ -352,9 +354,9 @@ class SettingsActivity : AppCompatActivity() {
         onClick: () -> Unit
     ) {
         val row = LayoutInflater.from(this).inflate(R.layout.item_option_row, container, false)
-        row.findViewById<TextView>(R.id.tvOptionIcon).apply {
-            text = icon
-            setTextColor(iconColor)
+        row.findViewById<ImageView>(R.id.ivOptionIcon).apply {
+            setImageResource(iconRes)
+            imageTintList = ColorStateList.valueOf(iconColor)
         }
         row.findViewById<TextView>(R.id.tvOptionTitle).apply {
             text = title
