@@ -42,6 +42,7 @@ import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.ChatSession
 import com.example.localqwen.chat.ChatSessionStore
 import com.example.localqwen.chat.Role
+import com.example.localqwen.document.DocumentMessageFormatter
 import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.DocumentToolIntent
 import com.example.localqwen.document.DocumentToolRequest
@@ -1003,7 +1004,7 @@ class MainActivity : AppCompatActivity() {
         return if (reason.isNullOrBlank()) {
             SEMANTIC_FALLBACK_GENERATION_STATUS
         } else {
-            "$reason\nتم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+            DocumentMessageFormatter.semanticFallbackStatusWithReason(reason)
         }
     }
 
@@ -2281,7 +2282,7 @@ class MainActivity : AppCompatActivity() {
             embeddingBackendLabel = embeddingBackendLabel(currentEmbeddingBackend()),
             embeddingModelImported = modelReady,
             embeddingModelDisplayPath = "files/${EmbeddingModelManager.EMBEDDING_MODEL_RELATIVE_PATH}",
-            selectedDocumentTitle = selectedDocument?.title ?: "لا يوجد مستند محدد",
+            selectedDocumentTitle = selectedDocument?.title ?: DocumentMessageFormatter.noSelectedDocumentMessage(),
             indexInfo = indexInfo,
             lastState = lastState,
             canBuildIndex = modelReady && selectedDocument != null
@@ -2333,7 +2334,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val indexValue = when {
-            data.selectedDocumentTitle == "لا يوجد مستند محدد" -> "اختر مستندًا أولًا."
+            data.selectedDocumentTitle == DocumentMessageFormatter.noSelectedDocumentMessage() -> "اختر مستندًا أولًا."
             data.indexInfo == null -> "غير موجود"
             else -> {
                 buildString {
@@ -2759,7 +2760,7 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
                 saveActiveSessionDebounced(immediate = true)
-                setStatusSuccess("تم إلغاء اختيار المستند")
+                setStatusSuccess(DocumentMessageFormatter.documentClearedMessage())
             }
             SettingsActivity.ACTION_CLEAR_CHAT -> confirmClearChat()
             SettingsActivity.ACTION_COPY_CHAT -> copyFullConversation()
@@ -2838,7 +2839,7 @@ class MainActivity : AppCompatActivity() {
                     DocumentToolIntent.SHOW_DOCUMENT_LIBRARY -> showDocumentLibraryDialog()
                     DocumentToolIntent.CLEAR_SELECTED_DOCUMENT -> {
                         documentStore.clearSelectedDocumentId()
-                        addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم إلغاء اختيار المستند"))
+                        addChatMessage(ChatMessage(role = Role.ASSISTANT, text = DocumentMessageFormatter.documentClearedMessage()))
                         setStatusInfo(currentStatus())
                     }
 
@@ -2889,7 +2890,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun performCurrentDocumentSummary(): String {
-        val document = getSelectedDocument() ?: return "لا يوجد مستند محدد"
+        val document = getSelectedDocument() ?: return DocumentMessageFormatter.noSelectedDocumentMessage()
         val excerpt = document.extractedText
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -2996,7 +2997,7 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             val documents = withContext(Dispatchers.IO) { documentStore.getDocuments() }
             if (documents.isEmpty()) {
-                setStatusError("المكتبة فارغة")
+                setStatusError(DocumentMessageFormatter.emptyLibraryMessage())
                 return@launch
             }
 
@@ -3008,7 +3009,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("المكتبة")
                 .setItems(labels) { _, which ->
                     documentStore.setSelectedDocumentId(documents[which].id)
-                    setStatusSuccess("تم اختيار: ${documents[which].title}")
+                    setStatusSuccess(DocumentMessageFormatter.documentSelectedMessage(documents[which].title))
                     setStatusInfo(currentStatus())
                 }
                 .show()
@@ -3962,8 +3963,8 @@ class MainActivity : AppCompatActivity() {
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
         private const val PDF_PROCESSING_TAG = "pdf_processing"
         private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
-        private const val KEYWORD_GENERATION_STATUS = "تم استخدام البحث النصي • جاري التوليد..."
-        private const val SEMANTIC_GENERATION_STATUS = "تم استخدام البحث الدلالي • جاري التوليد..."
+        private val KEYWORD_GENERATION_STATUS = DocumentMessageFormatter.keywordSearchUsedStatus()
+        private val SEMANTIC_GENERATION_STATUS = DocumentMessageFormatter.semanticSearchUsedStatus()
         private const val BACKGROUND_TASKS_MAX_PDF_ITEMS = 8
         private const val SEMANTIC_INDEX_STATUS_IDLE = "idle"
         private const val SEMANTIC_INDEX_STATUS_RUNNING = "running"
@@ -3977,8 +3978,8 @@ class MainActivity : AppCompatActivity() {
             "اكتب جملة عربية قصيرة جدًا من 4 إلى 6 كلمات فقط."
         private const val LOCAL_MODEL_SPEED_TEST_PROMPT =
             "اكتب قائمة من 1 إلى 10 بالأرقام فقط في سطر واحد."
-        private const val SEMANTIC_FALLBACK_GENERATION_STATUS =
-            "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا.\nجاري التوليد..."
+        private val SEMANTIC_FALLBACK_GENERATION_STATUS =
+            DocumentMessageFormatter.semanticFallbackStatus()
     }
 }
 
