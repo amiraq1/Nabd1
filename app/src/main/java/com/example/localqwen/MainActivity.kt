@@ -1500,124 +1500,77 @@ class MainActivity : AppCompatActivity() {
         val dialog = BottomSheetDialog(this)
         dialog.setContentView(sheet)
 
-        val subtitleView = sheet.findViewById<TextView>(R.id.tvOptionsSubtitle)
         val statusChip = sheet.findViewById<TextView>(R.id.tvStatusChip)
         val currentModelNameView = sheet.findViewById<TextView>(R.id.tvCurrentModelName)
-        subtitleView.text = "مساعد محلي"
+        
         currentModelNameView.text = when (selectedModel.id) {
             MODEL_ID_E2B -> "Gemma E2B"
             MODEL_ID_E4B -> "Gemma E4B"
             else -> selectedModel.displayName
         }
+        
         val isModelActive = textInferenceEngine?.isReady() == true && loadedModelId == selectedModel.id
         val isModelLoading = isLoadingModel
+        
         statusChip.text = when {
             isModelLoading -> "جاري التشغيل"
             isModelActive -> "مشغّل"
             else -> "غير مشغّل"
         }
-        when {
-            isModelLoading -> {
-                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_loading)
-                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_accent))
-            }
-            isModelActive -> {
-                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_ready)
-                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_success))
-            }
-            else -> {
-                statusChip.background = ContextCompat.getDrawable(this, R.drawable.bg_status_chip_inactive)
-                statusChip.setTextColor(ContextCompat.getColor(this, R.color.nabd_text_secondary))
-            }
-        }
 
+        val mainContainer = sheet.findViewById<LinearLayout>(R.id.sectionMainOptions)
+
+        // 1. Toggle Nabd
         addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
+            mainContainer,
             if (isModelActive) R.drawable.ic_stop else R.drawable.ic_play,
             if (isModelActive) "إيقاف نبض" else "تشغيل نبض",
-            subtitle = "تشغيل أو إيقاف النموذج الحالي",
-            iconColor = ContextCompat.getColor(this, R.color.icon_accent_tint)
+            iconColor = ContextCompat.getColor(this, if (isModelActive) R.color.nabd_error else R.color.icon_accent_tint)
         ) {
             dialog.dismiss()
             if (isModelActive) unloadModel() else loadModel()
         }
+
+        // 2. Add File
         addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
+            mainContainer,
             R.drawable.ic_add,
-            "إضافة ملف",
-            subtitle = "تحليل PDF أو صورة"
+            "إضافة ملف"
         ) {
             dialog.dismiss()
             showAttachmentTypeDialog()
         }
+
+        // 3. New Chat
         addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
-            R.drawable.ic_tools,
-            "مركز الأدوات",
-            subtitle = "أدوات الهاتف والمستندات"
-        ) {
-            dialog.dismiss()
-            showToolsCenter()
-        }
-        addOptionRow(
-            sheet.findViewById(R.id.sectionModel),
-            R.drawable.ic_settings,
-            "الإعدادات",
-            subtitle = "النماذج والبحث والمستندات"
-        ) {
-            dialog.dismiss()
-            openSettingsPage()
-        }
-        addOptionRow(
-            sheet.findViewById(R.id.sectionConversation),
-            R.drawable.ic_add,
-            "محادثة جديدة",
-            subtitle = "بدء جلسة مستقلة"
+            mainContainer,
+            R.drawable.ic_history,
+            "محادثة جديدة"
         ) {
             dialog.dismiss()
             startNewChat()
         }
+
+        // 4. History
         addOptionRow(
-            sheet.findViewById(R.id.sectionConversation),
+            mainContainer,
             R.drawable.ic_history,
-            "سجل المحادثات",
-            subtitle = "فتح المحادثات السابقة"
+            "سجل المحادثات"
         ) {
             dialog.dismiss()
             showChatHistoryDialog()
         }
+
+        // 5. Settings
         addOptionRow(
-            sheet.findViewById(R.id.sectionInfo),
-            R.drawable.ic_help,
-            "حول نبض",
-            subtitle = "معلومات التطبيق والنماذج"
+            mainContainer,
+            R.drawable.ic_settings,
+            "الإعدادات"
         ) {
             dialog.dismiss()
-            showAboutDialog()
+            openSettingsPage()
         }
 
-        dialog.setOnShowListener {
-            val bottomSheet =
-                dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return@setOnShowListener
-            val behavior = BottomSheetBehavior.from(bottomSheet)
-            val screenHeight = resources.displayMetrics.heightPixels
-            behavior.skipCollapsed = false
-            behavior.isFitToContents = true
-            behavior.state = BottomSheetBehavior.STATE_EXPANDED
-            behavior.isDraggable = true
-            bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
-                height = ViewGroup.LayoutParams.WRAP_CONTENT
-            }
-            bottomSheet.post {
-                val maxHeight = (screenHeight * 0.75f).toInt()
-                if (bottomSheet.height > maxHeight) {
-                    bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
-                        height = maxHeight
-                    }
-                    bottomSheet.requestLayout()
-                }
-            }
-        }
         dialog.show()
     }
 

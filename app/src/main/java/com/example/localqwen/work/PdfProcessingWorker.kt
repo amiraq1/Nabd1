@@ -73,10 +73,11 @@ class PdfProcessingWorker(
                     val text = StringBuilder()
 
                     for (index in 0 until pageCount) {
+                        val currentPageNumber = index + 1
                         setProgress(
                             workDataOf(
                                 KEY_PDF_TITLE to title,
-                                KEY_PROGRESS_PAGE to (index + 1),
+                                KEY_PROGRESS_PAGE to currentPageNumber,
                                 KEY_PROGRESS_TOTAL to pageCount
                             )
                         )
@@ -89,6 +90,7 @@ class PdfProcessingWorker(
                                 val pageText = result.text.trim()
                                 if (pageText.isNotEmpty()) {
                                     if (text.isNotEmpty()) text.append("\n\n")
+                                    text.append("[الصفحة $currentPageNumber]\n")
                                     text.append(pageText)
                                 }
                             } finally {
@@ -153,7 +155,7 @@ class PdfProcessingWorker(
         const val KEY_PROGRESS_TOTAL = "progress_total"
 
         private const val DEFAULT_PDF_TITLE = "ملف PDF"
-        private const val MAX_PDF_PAGES = 3
+        private const val MAX_PDF_PAGES = 50
         private const val MAX_PDF_BITMAP_DIMENSION = 2048
         private const val PDF_RENDER_SCALE = 1.2f
     }

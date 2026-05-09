@@ -16,10 +16,10 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var sectionModel: LinearLayout
-    private lateinit var sectionDocuments: LinearLayout
-    private lateinit var sectionConversation: LinearLayout
-    private lateinit var sectionApp: LinearLayout
+    private lateinit var mainContainer: LinearLayout
+    private lateinit var tvStatus: TextView
+    private lateinit var tvModel: TextView
+    private lateinit var tvDoc: TextView
 
     private var currentModelDescription: String = ""
     private var currentModelStatus: String = ""
@@ -31,6 +31,7 @@ class SettingsActivity : AppCompatActivity() {
     private var currentEmbeddingBackend: String = "auto"
     private var embeddingModelStatus: String = ""
     private var embeddingIndexCount: Int = 0
+    private var selectedDocumentId: String? = null
     private var selectedDocumentTitle: String? = null
     private var currentSessionTitle: String = ""
     private var appVersion: String = ""
@@ -53,229 +54,186 @@ class SettingsActivity : AppCompatActivity() {
         appVersion = intent.getStringExtra(EXTRA_APP_VERSION).orEmpty()
 
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
-        sectionModel = findViewById(R.id.sectionModelSettings)
-        sectionDocuments = findViewById(R.id.sectionDocumentsSettings)
-        sectionConversation = findViewById(R.id.sectionConversationSettings)
-        sectionApp = findViewById(R.id.sectionAppSettings)
+        mainContainer = findViewById(R.id.sectionMainSettings)
+        tvStatus = findViewById(R.id.tvSettingsStatusValue)
+        tvModel = findViewById(R.id.tvSettingsModelValue)
+        tvDoc = findViewById(R.id.tvSettingsDocValue)
 
         bindStateCard()
-        populateSettings()
+        populateMainSections()
     }
 
     private fun bindStateCard() {
-        findViewById<TextView>(R.id.tvCurrentSessionValue).text =
-            currentSessionTitle.ifBlank { "محادثة جديدة" }
-        findViewById<TextView>(R.id.tvCurrentDocumentValue).text =
-            selectedDocumentTitle ?: "لا يوجد مستند محدد"
-        findViewById<TextView>(R.id.tvCurrentModelValue).text =
-            "$currentModelDescription • ${currentModelStatus.ifBlank { "غير معروف" }}"
+        tvStatus.text = currentModelStatus.ifBlank { "غير مشغّل" }
+        tvModel.text = currentModelDescription.ifBlank { "لم يتم اختيار نموذج" }
+        tvDoc.text = if (selectedDocumentTitle != null) "مستند نشط" else "لا يوجد مستند"
+    }
 
-        findViewById<View>(R.id.rowCurrentSession).apply {
-            contentDescription = "فتح سجل المحادثات"
-            setOnClickListener { finishWithAction(ACTION_OPEN_CHAT_HISTORY) }
+    private fun populateMainSections() {
+        addOptionRow(
+            mainContainer,
+            R.drawable.ic_help,
+            "الحساب والتطبيق",
+            "حول نبض، الخصوصية، والتقارير"
+        ) {
+            showAccountAppDialog()
         }
-        findViewById<View>(R.id.rowCurrentDocument).apply {
-            contentDescription = "فتح مكتبة المستندات"
-            setOnClickListener { finishWithAction(ACTION_OPEN_DOCUMENT_LIBRARY) }
+
+        addOptionRow(
+            mainContainer,
+            R.drawable.ic_model,
+            "النماذج",
+            "إدارة نماذج المحادثة والرؤية والتضمين"
+        ) {
+            showModelsDialog()
         }
-        findViewById<View>(R.id.rowCurrentModel).apply {
-            contentDescription = "اختيار النموذج"
-            setOnClickListener { finishWithAction(ACTION_SELECT_MODEL) }
+
+        addOptionRow(
+            mainContainer,
+            R.drawable.ic_search,
+            "المستندات والبحث",
+            "المكتبة، وضع البحث، والبحث الدلالي"
+        ) {
+            showDocumentsSearchDialog()
+        }
+
+        addOptionRow(
+            mainContainer,
+            R.drawable.ic_history,
+            "المحادثات",
+            "السجل، نسخ المحادثة، وإدارة الجلسات"
+        ) {
+            showConversationsDialog()
+        }
+
+        addOptionRow(
+            mainContainer,
+            R.drawable.ic_tools,
+            "الأدوات",
+            "أدوات الهاتف، الخريطة، ومهام الخلفية"
+        ) {
+            showToolsDialog()
         }
     }
 
-    private fun populateSettings() {
-        addOptionRow(
-            sectionModel,
-            R.drawable.ic_model,
-            "النموذج الحالي",
-            buildString {
-                append(currentModelDescription.ifBlank { "غير محدد" })
-                append("\nالحالة: ")
-                append(currentModelStatus.ifBlank { "غير معروف" })
+    private fun showAccountAppDialog() {
+        val items = arrayOf("حول نبض", "سياسة الخصوصية", "نسخ تقرير بيتا")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("الحساب والتطبيق")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_ABOUT)
+                    1 -> {} // Open Privacy URL if exists
+                    2 -> finishWithAction(ACTION_COPY_BETA_REPORT)
+                }
             }
-        ) {
-            finishWithAction(ACTION_SELECT_MODEL)
-        }
-        addOptionRow(
-            sectionModel,
-            R.drawable.ic_e2b,
-            "Gemma E2B",
-            currentModelE2bStatus.ifBlank { "غير مستورد" }
-        ) {
-            finishWithAction(ACTION_MANAGE_MODEL_E2B)
-        }
-        addOptionRow(
-            sectionModel,
-            R.drawable.ic_e2b,
-            "Gemma E4B",
-            currentModelE4bStatus.ifBlank { "غير مستورد" }
-        ) {
-            finishWithAction(ACTION_MANAGE_MODEL_E4B)
-        }
-        
-        val visionIcon = if (currentModelVisionStatus.startsWith("مستورد")) R.drawable.ic_vision else R.drawable.ic_download
-        addOptionRow(
-            sectionModel,
-            visionIcon,
-            "FastVLM 0.5B (نموذج الرؤية)",
-            currentModelVisionStatus.ifBlank { "غير مستورد" }
-        ) {
-            if (currentModelVisionStatus.startsWith("مستورد")) {
-                finishWithAction(ACTION_DELETE_VISION_MODEL)
-            } else {
-                finishWithAction(ACTION_IMPORT_VISION_MODEL)
-            }
-        }
-        addOptionRow(
-            sectionModel,
-            R.drawable.ic_help,
-            "تشخيص نموذج الذكاء",
-            "حالة النموذج والأداء"
-        ) {
-            finishWithAction(ACTION_LITERT_DIAGNOSTICS)
-        }
+            .show()
+    }
 
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_settings,
-            "طول إجابة المستند",
-            documentAnswerLengthLabel(currentDocumentAnswerLength)
-        ) {
-            showDocumentAnswerLengthDialog()
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_search,
-            "وضع البحث في المستندات",
-            ragSearchModeLabel(currentRagSearchMode)
-        ) {
-            showRagSearchModeDialog()
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_diagnostics,
+    private fun showModelsDialog() {
+        val items = arrayOf(
+            "نموذج المحادثة (${currentModelDescription})",
+            "نموذج الرؤية (FastVLM)",
             "نموذج التضمين",
-            embeddingModelStatus.ifBlank { "غير مستورد" }
-        ) {
-            finishWithAction(ACTION_RAG_DIAGNOSTICS)
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_download,
-            "استيراد نموذج التضمين",
-            if (embeddingModelStatus.startsWith("مستورد")) {
-                "استبدال النموذج الحالي"
-            } else {
-                "استيراد ملف .tflite"
+            "تشخيص نموذج الذكاء"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("النماذج")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_SELECT_MODEL)
+                    1 -> {
+                         if (currentModelVisionStatus.startsWith("مستورد")) {
+                            finishWithAction(ACTION_DELETE_VISION_MODEL)
+                        } else {
+                            finishWithAction(ACTION_IMPORT_VISION_MODEL)
+                        }
+                    }
+                    2 -> showEmbeddingModelSubDialog()
+                    3 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
+                }
             }
-        ) {
-            finishWithAction(ACTION_IMPORT_EMBEDDING_MODEL)
-        }
-        if (embeddingModelStatus.startsWith("مستورد")) {
-            addOptionRow(
-                sectionDocuments,
-                R.drawable.ic_delete,
-                "حذف نموذج التضمين",
-                "إزالة النموذج المحلي والإبقاء على البحث النصي"
-            ) {
-                finishWithAction(ACTION_DELETE_EMBEDDING_MODEL)
+            .show()
+    }
+
+    private fun showEmbeddingModelSubDialog() {
+        val items = arrayOf("استيراد نموذج تضمين", "حذف نموذج التضمين", "محرك التضمين")
+        MaterialAlertDialogBuilder(this)
+            .setTitle("نموذج التضمين")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_IMPORT_EMBEDDING_MODEL)
+                    1 -> finishWithAction(ACTION_DELETE_EMBEDDING_MODEL)
+                    2 -> showEmbeddingBackendDialog()
+                }
             }
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_settings,
-            "محرك التضمين",
-            embeddingBackendLabel(currentEmbeddingBackend)
-        ) {
-            showEmbeddingBackendDialog()
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_sync,
-            "إنشاء فهرس دلالي للمستند",
-            selectedDocumentTitle ?: "اختر مستندًا أولًا"
-        ) {
-            finishWithAction(ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX)
-        }
-        if (embeddingIndexCount > 0) {
-            addOptionRow(
-                sectionDocuments,
-                R.drawable.ic_delete,
-                "حذف الفهارس الدلالية",
-                "عدد الفهارس: $embeddingIndexCount"
-            ) {
-                finishWithAction(ACTION_DELETE_EMBEDDING_INDEXES)
-            }
-        }
-        addOptionRow(
-            sectionDocuments,
-            R.drawable.ic_help,
+            .show()
+    }
+
+    private fun showDocumentsSearchDialog() {
+        val items = arrayOf(
+            "مكتبة المستندات",
+            "طول إجابة المستند (${documentAnswerLengthLabel(currentDocumentAnswerLength)})",
+            "وضع البحث (${ragSearchModeLabel(currentRagSearchMode)})",
+            "إنشاء فهرس دلالي",
+            "حذف الفهارس الدلالية",
             "تشخيص البحث الدلالي",
-            "حالة نموذج التضمين والفهرس"
-        ) {
-            finishWithAction(ACTION_RAG_DIAGNOSTICS)
-        }
-
-        if (!selectedDocumentTitle.isNullOrBlank()) {
-            addOptionRow(
-                sectionDocuments,
-                R.drawable.ic_delete,
-                "إلغاء اختيار المستند",
-                selectedDocumentTitle
-            ) {
-                finishWithAction(ACTION_CLEAR_SELECTED_DOCUMENT)
+            "إلغاء اختيار المستند"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("المستندات والبحث")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_OPEN_DOCUMENT_LIBRARY)
+                    1 -> showDocumentAnswerLengthDialog()
+                    2 -> showRagSearchModeDialog()
+                    3 -> finishWithAction(ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX)
+                    4 -> finishWithAction(ACTION_DELETE_EMBEDDING_INDEXES)
+                    5 -> finishWithAction(ACTION_RAG_DIAGNOSTICS)
+                    6 -> finishWithAction(ACTION_CLEAR_SELECTED_DOCUMENT)
+                }
             }
-        }
+            .show()
+    }
 
-        addOptionRow(
-            sectionConversation,
-            R.drawable.ic_delete,
-            "مسح المحادثة الحالية",
-            titleColor = ContextCompat.getColor(this, R.color.nabd_error),
-            iconColor = ContextCompat.getColor(this, R.color.icon_danger_tint)
-        ) {
-            finishWithAction(ACTION_CLEAR_CHAT)
-        }
-        addOptionRow(sectionConversation, R.drawable.ic_copy, "نسخ المحادثة") {
-            finishWithAction(ACTION_COPY_CHAT)
-        }
-        addOptionRow(sectionConversation, R.drawable.ic_copy, "نسخ آخر رد") {
-            finishWithAction(ACTION_COPY_LAST_RESPONSE)
-        }
+    private fun showConversationsDialog() {
+        val items = arrayOf(
+            "سجل المحادثات",
+            "نسخ المحادثة",
+            "نسخ آخر رد",
+            "مسح المحادثة الحالية"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("المحادثات")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_OPEN_CHAT_HISTORY)
+                    1 -> finishWithAction(ACTION_COPY_CHAT)
+                    2 -> finishWithAction(ACTION_COPY_LAST_RESPONSE)
+                    3 -> finishWithAction(ACTION_CLEAR_CHAT)
+                }
+            }
+            .show()
+    }
 
-        addOptionRow(
-            sectionApp,
-            R.drawable.ic_history,
-            "مهام الخلفية",
-            "حالة تحليل PDF والفهرسة الدلالية"
-        ) {
-            finishWithAction(ACTION_BACKGROUND_TASKS)
-        }
-        addOptionRow(
-            sectionApp,
-            R.drawable.ic_model,
-            "إدارة النماذج المحلية",
-            "عرض النموذج الحالي، الحالة، الحجم، والاختبارات"
-        ) {
-            finishWithAction(ACTION_LOCAL_MODEL_MANAGER)
-        }
-        addOptionRow(
-            sectionApp,
-            R.drawable.ic_copy,
-            "نسخ تقرير بيتا",
-            "معلومات الجهاز والنموذج والأداء بدون بياناتك الخاصة"
-        ) {
-            finishWithAction(ACTION_COPY_BETA_REPORT)
-        }
-        addOptionRow(
-            sectionApp,
-            R.drawable.ic_help,
-            "حول نبض",
-            "الإصدار: $appVersion"
-        ) {
-            finishWithAction(ACTION_ABOUT)
-        }
+    private fun showToolsDialog() {
+        val items = arrayOf(
+            "أدوات الهاتف (البطارية، الجهاز)",
+            "أداة الخريطة",
+            "الأماكن المحفوظة",
+            "مهام الخلفية"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("الأدوات")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> finishWithAction(ACTION_LOCAL_MODEL_MANAGER) // Using manager for tools info
+                    1 -> {} // Trigger Map Tool in Main
+                    2 -> {} // Trigger Saved Places in Main
+                    3 -> finishWithAction(ACTION_BACKGROUND_TASKS)
+                }
+            }
+            .show()
     }
 
     private fun showDocumentAnswerLengthDialog() {

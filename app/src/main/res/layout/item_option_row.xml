@@ -1,28 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/optionRow"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_marginBottom="6dp"
+    android:layout_height="52dp"
+    android:layout_marginBottom="4dp"
     android:background="@drawable/bg_option_row"
-    android:foreground="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
     android:gravity="center_vertical"
-    android:layoutDirection="locale"
-    android:minHeight="52dp"
     android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="12dp"
-    android:paddingBottom="8dp">
+    android:paddingEnd="16dp">
 
     <ImageView
         android:id="@+id/ivOptionIcon"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:layout_gravity="center"
-        android:scaleType="fitCenter"
-        app:tint="@color/nabd_text_secondary" />
+        android:alpha="0.8" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -35,29 +28,23 @@
             android:id="@+id/tvOptionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:alpha="1.0"
             android:textColor="@color/nabd_on_surface"
-            android:textDirection="locale"
-            android:textSize="16sp" />
+            android:textSize="14sp"
+            android:textStyle="normal" />
 
         <TextView
             android:id="@+id/tvOptionSubtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:alpha="1.0"
             android:textColor="@color/nabd_text_secondary"
-            android:textDirection="locale"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:visibility="gone" />
     </LinearLayout>
 
     <ImageView
         android:id="@+id/ivOptionChevron"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_marginStart="8dp"
-        android:alpha="0.5"
-        android:src="@drawable/ic_chevron_left"
-        app:tint="@color/icon_chevron_tint" />
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:alpha="0.3"
+        android:src="@drawable/ic_chevron_left" />
 </LinearLayout>
