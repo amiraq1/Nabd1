@@ -45,6 +45,7 @@ import com.example.localqwen.chat.ChatSession
 import com.example.localqwen.chat.ChatSessionStore
 import com.example.localqwen.chat.Role
 import com.example.localqwen.diagnostics.BetaReportBuilder
+import com.example.localqwen.document.DocumentExtractionProcessor
 import com.example.localqwen.document.DocumentMessageFormatter
 import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.DocumentToolIntent
@@ -846,7 +847,88 @@ class MainActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
-    private suspend fun saveExtractedDocument(title: String, type: String, text: String) {
+    private fun showExtractionModeDialog(title: String, type: String, text: String) {
+        val modes = DocumentExtractionProcessor.ExtractionMode.values()
+        val labels = modes.map { it.label }.toTypedArray()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("اختر طريقة حفظ النص")
+            .setItems(labels) { _, which ->
+                val selectedMode = modes[which]
+                processExtractedTextWithMode(title, type, text, selectedMode)
+            }
+            .show()
+    }
+
+    private fun processExtractedTextWithMode(
+        baseTitle: String,
+        type: String,
+        text: String,
+        mode: DocumentExtractionProcessor.ExtractionMode
+    ) {
+        val finalTitle = "$baseTitle ${mode.suffix}"
+
+        when (mode) {
+            DocumentExtractionProcessor.ExtractionMode.RAW -> {
+                saveExtractedDocument(finalTitle, type, text)
+                setStatusSuccess("تم حفظ النص الخام")
+            }
+            DocumentExtractionProcessor.ExtractionMode.REDACTED -> {
+                val redactedByRegex = DocumentExtractionProcessor.redactSensitiveInfo(text)
+                if (textInferenceEngine?.isReady() == true) {
+                    performLlmExtraction(finalTitle, type, DocumentExtractionProcessor.getRedactionPrompt(redactedByRegex), "جاري تنقيح النص...")
+                } else {
+                    saveExtractedDocument(finalTitle, type, redactedByRegex)
+                    setStatusSuccess("تم التنقيح باستخدام القواعد الأساسية (شغّل نبض لتنقيح أعمق)")
+                }
+            }
+            DocumentExtractionProcessor.ExtractionMode.MARKDOWN -> {
+                if (textInferenceEngine?.isReady() == true) {
+                    performLlmExtraction(finalTitle, type, DocumentExtractionProcessor.getMarkdownPrompt(text), "جاري تحويل النص إلى Markdown...")
+                } else {
+                    setStatusError("شغّل نبض أولًا لاستخدام نمط Markdown")
+                }
+            }
+            DocumentExtractionProcessor.ExtractionMode.STRUCTURED -> {
+                if (textInferenceEngine?.isReady() == true) {
+                    performLlmExtraction(finalTitle, type, DocumentExtractionProcessor.getStructuredDataPrompt(text), "جاري استخراج البيانات المنظمة...")
+                } else {
+                    setStatusError("شغّل نبض أولًا لاستخدام نمط البيانات المنظمة")
+                }
+            }
+        }
+    }
+
+    private fun performLlmExtraction(finalTitle: String, type: String, prompt: String, statusMessage: String) {
+        isProcessingFile = true
+        updateButtons()
+        setStatusInfo(statusMessage)
+
+        scope.launch {
+            try {
+                val result = StringBuilder()
+                withContext(Dispatchers.IO) {
+                    textInferenceEngine?.generate(prompt)?.collect { chunk ->
+                        result.append(chunk)
+                    }
+                }
+                val processedText = cleanForDisplay(result.toString(), preserveMarkdown = true)
+                if (processedText.isNotEmpty()) {
+                    saveExtractedDocument(finalTitle, type, processedText)
+                    setStatusSuccess("اكتمل استخراج البيانات بنجاح")
+                } else {
+                    setStatusError("فشل استخراج البيانات من النموذج")
+                }
+            } catch (e: Exception) {
+                setStatusError("حدث خطأ أثناء معالجة النموذج: ${e.message}")
+            } finally {
+                isProcessingFile = false
+                updateButtons()
+            }
+        }
+    }
+
+    private fun saveExtractedDocument(title: String, type: String, text: String) {
         if (text.isBlank()) return
         scope.launch {
             val document = LocalDocument(
@@ -3719,11 +3801,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (extractedText.isNotEmpty()) {
-                    withContext(Dispatchers.IO) {
-                        saveExtractedDocument(getDisplayName(uri) ?: "صورة", "image", extractedText)
-                    }
+                    val baseTitle = getDisplayName(uri) ?: "صورة"
+                    showExtractionModeDialog(baseTitle, "image", extractedText)
+                    
                     addChatMessage(
-                        ChatMessage(role = Role.USER, text = "تحليل صورة: ${getDisplayName(uri)}")
+                        ChatMessage(role = Role.USER, text = "تحليل صورة: $baseTitle")
                     )
                     val assistant = ChatMessage(role = Role.ASSISTANT, text = "")
                     addChatMessage(assistant)
@@ -3860,9 +3942,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (extractedText.isNotEmpty()) {
-                    withContext(Dispatchers.IO) {
-                        saveExtractedDocument(getDisplayName(uri) ?: "صورة", "image", extractedText)
-                    }
+                    val baseTitle = getDisplayName(uri) ?: "صورة"
+                    showExtractionModeDialog(baseTitle, "image", extractedText)
                     setStatusSuccess("تم استخراج النص.")
                     
                     val input = EditText(this@MainActivity).apply {
@@ -3950,6 +4031,19 @@ class MainActivity : AppCompatActivity() {
                     val title = workInfo.outputData.getString(PdfProcessingWorker.KEY_PDF_TITLE)
                         ?: PdfMessageFormatter.defaultPdfTitle()
                     val extractedChars = workInfo.outputData.getInt(PdfProcessingWorker.KEY_EXTRACTED_CHARS, 0)
+                    
+                    // Get text from DocumentStore for the newly created doc, OR we need to pass it back
+                    // Actually, the worker already saved it. This is a bit redundant but for consistency:
+                    scope.launch {
+                        val docId = workInfo.outputData.getString(PdfProcessingWorker.KEY_DOCUMENT_ID)
+                        val doc = docId?.let { documentStore.getDocument(it) }
+                        if (doc != null) {
+                            withContext(Dispatchers.Main) {
+                                showExtractionModeDialog(title, "pdf", doc.extractedText)
+                            }
+                        }
+                    }
+
                     addChatMessage(
                         ChatMessage(
                             role = Role.SYSTEM,
