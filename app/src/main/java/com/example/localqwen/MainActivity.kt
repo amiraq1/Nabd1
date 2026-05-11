@@ -53,6 +53,9 @@ import com.example.localqwen.document.DocumentToolIntent
 import com.example.localqwen.document.DocumentToolRequest
 import com.example.localqwen.document.DocumentToolRouter
 import com.example.localqwen.document.LocalDocument
+import com.example.localqwen.memory.MemoryExtractor
+import com.example.localqwen.memory.MemoryPromptBuilder
+import com.example.localqwen.memory.MemoryStore
 import com.example.localqwen.rag.EmbeddingBackend
 import com.example.localqwen.rag.EmbeddingEngine
 import com.example.localqwen.model.ModelManager
@@ -131,6 +134,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var embeddingEngine: EmbeddingEngine
     private lateinit var embeddingStore: EmbeddingStore
     private lateinit var semanticRetriever: SemanticRetriever
+    private lateinit var memoryStore: MemoryStore
 
     private val pickModelRequestCode = 200
     private val pickImageRequestCode = 201
@@ -204,6 +208,7 @@ class MainActivity : AppCompatActivity() {
         )
         embeddingStore = EmbeddingStore(this)
         semanticRetriever = SemanticRetriever(embeddingEngine, embeddingStore)
+        memoryStore = MemoryStore(this)
         chatAdapter = ChatAdapter(this)
 
         statusView = findViewById(R.id.statusTextView)
@@ -1128,10 +1133,154 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun handleMemoryCommand(input: String): Boolean {
+        val normalized = input.trim()
+        if (normalized.isEmpty()) return false
+
+        when {
+            normalized == "ماذا تتذكر عني؟" || normalized == "ماذا تتذكر عني" -> {
+                inputView.setText("")
+                addChatMessage(ChatMessage(role = Role.USER, text = input))
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = buildMemoryListText()))
+                saveActiveSessionDebounced(immediate = true)
+                return true
+            }
+            normalized == "امسح ذاكرة نبض" -> {
+                inputView.setText("")
+                addChatMessage(ChatMessage(role = Role.USER, text = input))
+                confirmClearMemory(showChatMessage = true)
+                return true
+            }
+            normalized == "عطّل الذاكرة" || normalized == "عطل الذاكرة" -> {
+                inputView.setText("")
+                addChatMessage(ChatMessage(role = Role.USER, text = input))
+                memoryStore.setMemoryEnabled(false)
+                val message = "تم تعطيل ذاكرة نبض."
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
+                setStatusSuccess(message)
+                saveActiveSessionDebounced(immediate = true)
+                return true
+            }
+            normalized == "فعّل الذاكرة" || normalized == "فعل الذاكرة" -> {
+                inputView.setText("")
+                addChatMessage(ChatMessage(role = Role.USER, text = input))
+                memoryStore.setMemoryEnabled(true)
+                val message = "تم تفعيل ذاكرة نبض."
+                addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
+                setStatusSuccess(message)
+                saveActiveSessionDebounced(immediate = true)
+                return true
+            }
+        }
+
+        val extracted = MemoryExtractor.extractMemoryCommand(input) ?: return false
+        inputView.setText("")
+        addChatMessage(ChatMessage(role = Role.USER, text = input))
+
+        if (!memoryStore.isMemoryEnabled()) {
+            val message = "ذاكرة نبض معطلة. يمكنك تفعيلها من الإعدادات."
+            addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
+            setStatusError(message)
+            saveActiveSessionDebounced(immediate = true)
+            return true
+        }
+
+        if (containsSensitiveMemory(extracted)) {
+            val message = "لا يمكن حفظ معلومات حساسة في ذاكرة نبض."
+            addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
+            setStatusError(message)
+            saveActiveSessionDebounced(immediate = true)
+            return true
+        }
+
+        if (extracted.length > MAX_MEMORY_ITEM_CHARS) {
+            val message = "المعلومة طويلة جدًا. اكتبها بشكل أقصر."
+            addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
+            setStatusError(message)
+            saveActiveSessionDebounced(immediate = true)
+            return true
+        }
+
+        memoryStore.addMemory(
+            text = extracted,
+            category = inferMemoryCategory(extracted)
+        )
+        addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم حفظ ذلك في ذاكرة نبض."))
+        setStatusSuccess("تم تحديث ذاكرة نبض.")
+        saveActiveSessionDebounced(immediate = true)
+        return true
+    }
+
+    private fun buildMemoryListText(): String {
+        val memories = memoryStore.getAllMemories()
+        if (memories.isEmpty()) return "لا توجد معلومات محفوظة في ذاكرة نبض."
+        return buildString {
+            appendLine("هذه المعلومات المحفوظة في ذاكرة نبض:")
+            memories.forEach { memory ->
+                appendLine("- ${memory.text}")
+            }
+        }.trim()
+    }
+
+    private fun inferMemoryCategory(text: String): String {
+        val normalized = text.lowercase(Locale.getDefault())
+        return when {
+            normalized.contains("أفضل") || normalized.contains("افضل") || normalized.contains("أحب") || normalized.contains("احب") || normalized.contains("لا أحب") || normalized.contains("لا احب") -> {
+                MemoryStore.CATEGORY_PREFERENCE
+            }
+            normalized.contains("اسمي") || normalized.contains("اسم المستخدم") || normalized.contains("عمري") || normalized.contains("مدينتي") || normalized.contains("أعمل") || normalized.contains("اعمل") -> {
+                MemoryStore.CATEGORY_PROFILE
+            }
+            normalized.contains("مشروعي") || normalized.contains("مشروع") || normalized.contains("التطبيق") || normalized.contains("العمل") -> {
+                MemoryStore.CATEGORY_PROJECT
+            }
+            else -> MemoryStore.CATEGORY_GENERAL
+        }
+    }
+
+    private fun containsSensitiveMemory(text: String): Boolean {
+        val normalized = text.lowercase(Locale.getDefault())
+        return SENSITIVE_MEMORY_KEYWORDS.any { keyword ->
+            normalized.contains(keyword)
+        }
+    }
+
+    private fun buildMemoryContextForPrompt(): String {
+        if (!memoryStore.isMemoryEnabled()) return ""
+        return MemoryPromptBuilder.buildMemoryContext(memoryStore.getAllMemories())
+    }
+
+    private fun showMemoryDialog() {
+        val memoriesText = buildMemoryListText()
+        val privacyNote = "تُحفظ الذاكرة محليًا على جهازك فقط. لا تحفظ معلومات حساسة مثل كلمات المرور أو الأرقام السرية."
+        MaterialAlertDialogBuilder(this)
+            .setTitle("ذاكرة نبض")
+            .setMessage("$privacyNote\n\n$memoriesText")
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun confirmClearMemory(showChatMessage: Boolean = false) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("مسح ذاكرة نبض؟")
+            .setMessage("سيتم حذف كل عناصر ذاكرة نبض من هذا الجهاز.")
+            .setPositiveButton("مسح") { _, _ ->
+                memoryStore.clearAll()
+                if (showChatMessage) {
+                    addChatMessage(ChatMessage(role = Role.ASSISTANT, text = "تم مسح ذاكرة نبض."))
+                    saveActiveSessionDebounced(immediate = true)
+                }
+                setStatusSuccess("تم مسح ذاكرة نبض.")
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
     private fun sendPrompt() {
         if (isGenerating || isProcessingFile || isLoadingModel || isPreparingDocumentContext) return
         val input = inputView.text.toString().trim()
         if (input.isEmpty()) return
+        if (handleMemoryCommand(input)) return
 
         val mapIntent = com.example.localqwen.tools.MapToolRouter.detectMapIntent(input)
         if (mapIntent != null) {
@@ -1196,7 +1345,10 @@ class MainActivity : AppCompatActivity() {
                         answerLengthInstruction = currentDocumentAnswerLengthInstruction()
                     )
                 } else {
-                    NabdSystemPrompt.normalChatPrompt(input)
+                    NabdSystemPrompt.normalChatPrompt(
+                        userInput = input,
+                        memoryContext = buildMemoryContextForPrompt()
+                    )
                 }
 
                 startAssistantGeneration(
@@ -2868,6 +3020,13 @@ class MainActivity : AppCompatActivity() {
                 val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE)?.toIntOrNull() ?: return
                 updatePdfPageLimit(value)
             }
+            SettingsActivity.ACTION_TOGGLE_MEMORY -> {
+                val enabled = !memoryStore.isMemoryEnabled()
+                memoryStore.setMemoryEnabled(enabled)
+                setStatusSuccess(if (enabled) "تم تفعيل ذاكرة نبض." else "تم تعطيل ذاكرة نبض.")
+            }
+            SettingsActivity.ACTION_SHOW_MEMORY -> showMemoryDialog()
+            SettingsActivity.ACTION_CLEAR_MEMORY -> confirmClearMemory()
             SettingsActivity.ACTION_COPY_BETA_REPORT -> copyBetaReportToClipboard()
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
@@ -4136,7 +4295,17 @@ class MainActivity : AppCompatActivity() {
         private const val DOCUMENT_SEARCH_EXCERPT_CHARS = 250
         private const val DEFAULT_COPY_BUFFER_SIZE = 8_192
         private const val PDF_PROCESSING_TAG = "pdf_processing"
+        private const val MAX_MEMORY_ITEM_CHARS = 300
         private const val DEFAULT_GENERATION_STATUS = "جاري التوليد..."
+        private val SENSITIVE_MEMORY_KEYWORDS = listOf(
+            "password",
+            "كلمة المرور",
+            "الرقم السري",
+            "token",
+            "api key",
+            "بطاقة",
+            "حساب بنكي"
+        )
         private val KEYWORD_GENERATION_STATUS = DocumentMessageFormatter.keywordSearchUsedStatus()
         private val SEMANTIC_GENERATION_STATUS = DocumentMessageFormatter.semanticSearchUsedStatus()
         private const val BACKGROUND_TASKS_MAX_PDF_ITEMS = 8

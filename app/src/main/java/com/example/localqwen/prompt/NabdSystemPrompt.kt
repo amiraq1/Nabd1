@@ -22,11 +22,17 @@ object NabdSystemPrompt {
         """.trimIndent()
     }
 
-    fun normalChatPrompt(userInput: String): String {
+    fun normalChatPrompt(userInput: String, memoryContext: String = ""): String {
+        val memorySection = if (memoryContext.isBlank()) {
+            ""
+        } else {
+            "\n\n$memoryContext"
+        }
         return """
             ${baseIdentityPrompt()}
             أجب مباشرة على رسالة المستخدم.
             لا تطل إلا إذا طلب المستخدم التفصيل.
+$memorySection
 
             رسالة المستخدم:
             $userInput

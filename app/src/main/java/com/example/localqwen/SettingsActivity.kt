@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.localqwen.document.PdfSettings
+import com.example.localqwen.memory.MemoryStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class SettingsActivity : AppCompatActivity() {
@@ -120,14 +121,25 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showAccountAppDialog() {
-        val items = arrayOf("حول نبض", "سياسة الخصوصية", "نسخ تقرير بيتا")
+        val memoryEnabledLabel = if (MemoryStore(this).isMemoryEnabled()) "مفعلة" else "معطلة"
+        val items = arrayOf(
+            "ذاكرة نبض ($memoryEnabledLabel)",
+            "عرض الذاكرة",
+            "مسح الذاكرة",
+            "حول نبض",
+            "سياسة الخصوصية",
+            "نسخ تقرير بيتا"
+        )
         MaterialAlertDialogBuilder(this)
             .setTitle("الحساب والتطبيق")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> finishWithAction(ACTION_ABOUT)
-                    1 -> {} // Open Privacy URL if exists
-                    2 -> finishWithAction(ACTION_COPY_BETA_REPORT)
+                    0 -> finishWithAction(ACTION_TOGGLE_MEMORY)
+                    1 -> finishWithAction(ACTION_SHOW_MEMORY)
+                    2 -> finishWithAction(ACTION_CLEAR_MEMORY)
+                    3 -> finishWithAction(ACTION_ABOUT)
+                    4 -> {} // Open Privacy URL if exists
+                    5 -> finishWithAction(ACTION_COPY_BETA_REPORT)
                 }
             }
             .show()
@@ -406,6 +418,9 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_BACKGROUND_TASKS = "background_tasks"
         const val ACTION_LOCAL_MODEL_MANAGER = "local_model_manager"
         const val ACTION_COPY_BETA_REPORT = "copy_beta_report"
+        const val ACTION_TOGGLE_MEMORY = "toggle_memory"
+        const val ACTION_SHOW_MEMORY = "show_memory"
+        const val ACTION_CLEAR_MEMORY = "clear_memory"
         const val ACTION_ABOUT = "about"
 
         fun createIntent(
