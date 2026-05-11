@@ -47,6 +47,7 @@ import com.example.localqwen.chat.Role
 import com.example.localqwen.diagnostics.BetaReportBuilder
 import com.example.localqwen.document.DocumentExtractionProcessor
 import com.example.localqwen.document.DocumentMessageFormatter
+import com.example.localqwen.document.PdfSettings
 import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.DocumentToolIntent
 import com.example.localqwen.document.DocumentToolRequest
@@ -676,6 +677,11 @@ class MainActivity : AppCompatActivity() {
         setStatusSuccess("تم ضبط محرك التضمين: ${embeddingBackendLabel(backend)}")
     }
 
+    private fun updatePdfPageLimit(limit: Int) {
+        PdfSettings.setPdfPageLimit(this, limit)
+        setStatusSuccess("تم تحديث حد صفحات PDF")
+    }
+
     private fun embeddingModelSettingsStatus(): String {
         if (!embeddingModelManager.isEmbeddingModelReady()) {
             return "غير مستورد"
@@ -1008,10 +1014,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun retrieveDocumentChunks(query: String): DocumentRetrievalOutcome {
-        val document = getSelectedDocument() ?: return DocumentRetrievalOutcome()
+        val ragMode = currentRagMode()
+        val document = getSelectedDocument() ?: return DocumentRetrievalOutcome(
+            generationStatus = if (ragMode == RagMode.AUTO) {
+                DEFAULT_GENERATION_STATUS
+            } else {
+                "اختر مستندًا من المكتبة أولًا."
+            }
+        )
         val keywordResults = { retrieveKeywordDocumentChunks(document, query) }
 
-        return when (currentRagMode()) {
+        return when (ragMode) {
             RagMode.KEYWORD -> {
                 DocumentRetrievalOutcome(
                     chunks = keywordResults(),
@@ -1042,6 +1055,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             RagMode.SEMANTIC -> {
+                if (!embeddingEngine.isReady() || !embeddingStore.hasIndex(document.id)) {
+                    return DocumentRetrievalOutcome(
+                        chunks = keywordResults(),
+                        generationStatus = "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا."
+                    )
+                }
+
                 val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
                     .map { it.copy(documentTitle = document.title) }
                 if (semanticResults.isNotEmpty()) {
@@ -1080,7 +1100,7 @@ class MainActivity : AppCompatActivity() {
             )
             return DocumentContextResult(
                 context = null,
-                generationStatus = DEFAULT_GENERATION_STATUS
+                generationStatus = outcome.generationStatus
             )
         }
 
@@ -2844,6 +2864,10 @@ class MainActivity : AppCompatActivity() {
                 val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE) ?: return
                 updateEmbeddingBackend(value)
             }
+            SettingsActivity.ACTION_SET_PDF_PAGE_LIMIT -> {
+                val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE)?.toIntOrNull() ?: return
+                updatePdfPageLimit(value)
+            }
             SettingsActivity.ACTION_COPY_BETA_REPORT -> copyBetaReportToClipboard()
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
@@ -3094,8 +3118,8 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("المكتبة")
                 .setItems(labels) { _, which ->
                     documentStore.setSelectedDocumentId(documents[which].id)
+                    saveActiveSessionDebounced(immediate = true)
                     setStatusSuccess(DocumentMessageFormatter.documentSelectedMessage(documents[which].title))
-                    setStatusInfo(currentStatus())
                 }
                 .show()
         }
@@ -3347,6 +3371,10 @@ class MainActivity : AppCompatActivity() {
     private fun selectModel(position: Int) {
         val model = supportedModels[position]
         if (selectedModel.id == model.id) return
+        if (!modelManager.isModelImported(model.id)) {
+            setStatusError("تعذر اختيار النموذج. تأكد من استيراده أولًا.")
+            return
+        }
 
         selectedModel = model
         preferences.edit().putString(KEY_SELECTED_MODEL_ID, model.id).apply()
@@ -3944,12 +3972,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun processPdfUri(uri: Uri) {
         val title = getDisplayName(uri) ?: PdfMessageFormatter.defaultPdfTitle()
+        val pageLimit = PdfSettings.getPdfPageLimit(this)
         val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
             .addTag(PDF_PROCESSING_TAG)
             .setInputData(
                 workDataOf(
                     PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
-                    PdfProcessingWorker.KEY_PDF_TITLE to title
+                    PdfProcessingWorker.KEY_PDF_TITLE to title,
+                    PdfSettings.KEY_PDF_PAGE_LIMIT to pageLimit
                 )
             )
             .build()

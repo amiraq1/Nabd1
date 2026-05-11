@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.example.localqwen.document.PdfSettings
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class SettingsActivity : AppCompatActivity() {
@@ -29,6 +30,7 @@ class SettingsActivity : AppCompatActivity() {
     private var currentDocumentAnswerLength: String = "short"
     private var currentRagSearchMode: String = "auto"
     private var currentEmbeddingBackend: String = "auto"
+    private var currentPdfPageLimit: Int = 10
     private var embeddingModelStatus: String = ""
     private var embeddingIndexCount: Int = 0
     private var selectedDocumentId: String? = null
@@ -47,6 +49,7 @@ class SettingsActivity : AppCompatActivity() {
         currentDocumentAnswerLength = intent.getStringExtra(EXTRA_DOCUMENT_ANSWER_LENGTH) ?: "short"
         currentRagSearchMode = intent.getStringExtra(EXTRA_RAG_SEARCH_MODE) ?: "auto"
         currentEmbeddingBackend = intent.getStringExtra(EXTRA_EMBEDDING_BACKEND) ?: "auto"
+        currentPdfPageLimit = PdfSettings.getPdfPageLimit(this)
         embeddingModelStatus = intent.getStringExtra(EXTRA_EMBEDDING_MODEL_STATUS).orEmpty()
         embeddingIndexCount = intent.getIntExtra(EXTRA_EMBEDDING_INDEX_COUNT, 0)
         selectedDocumentTitle = intent.getStringExtra(EXTRA_SELECTED_DOCUMENT_TITLE)
@@ -132,7 +135,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showModelsDialog() {
         val items = arrayOf(
-            "نموذج المحادثة (${currentModelDescription})",
+            "Gemma E2B (${currentModelE2bStatus.ifBlank { "غير مستورد" }})",
+            "Gemma E4B (${currentModelE4bStatus.ifBlank { "غير مستورد" }})",
             "نموذج الرؤية (FastVLM)",
             "نموذج التضمين",
             "تشخيص نموذج الذكاء"
@@ -141,16 +145,17 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle("النماذج")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> finishWithAction(ACTION_SELECT_MODEL)
-                    1 -> {
+                    0 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
+                    1 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
+                    2 -> {
                          if (currentModelVisionStatus.startsWith("مستورد")) {
                             finishWithAction(ACTION_DELETE_VISION_MODEL)
                         } else {
                             finishWithAction(ACTION_IMPORT_VISION_MODEL)
                         }
                     }
-                    2 -> showEmbeddingModelSubDialog()
-                    3 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
+                    3 -> showEmbeddingModelSubDialog()
+                    4 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
                 }
             }
             .show()
@@ -174,6 +179,7 @@ class SettingsActivity : AppCompatActivity() {
         val items = arrayOf(
             "مكتبة المستندات",
             "طول إجابة المستند (${documentAnswerLengthLabel(currentDocumentAnswerLength)})",
+            "حد صفحات PDF (${pdfPageLimitLabel(currentPdfPageLimit)})",
             "وضع البحث (${ragSearchModeLabel(currentRagSearchMode)})",
             "إنشاء فهرس دلالي",
             "حذف الفهارس الدلالية",
@@ -186,11 +192,12 @@ class SettingsActivity : AppCompatActivity() {
                 when (which) {
                     0 -> finishWithAction(ACTION_OPEN_DOCUMENT_LIBRARY)
                     1 -> showDocumentAnswerLengthDialog()
-                    2 -> showRagSearchModeDialog()
-                    3 -> finishWithAction(ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX)
-                    4 -> finishWithAction(ACTION_DELETE_EMBEDDING_INDEXES)
-                    5 -> finishWithAction(ACTION_RAG_DIAGNOSTICS)
-                    6 -> finishWithAction(ACTION_CLEAR_SELECTED_DOCUMENT)
+                    2 -> showPdfPageLimitDialog()
+                    3 -> showRagSearchModeDialog()
+                    4 -> finishWithAction(ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX)
+                    5 -> finishWithAction(ACTION_DELETE_EMBEDDING_INDEXES)
+                    6 -> finishWithAction(ACTION_RAG_DIAGNOSTICS)
+                    7 -> finishWithAction(ACTION_CLEAR_SELECTED_DOCUMENT)
                 }
             }
             .show()
@@ -264,6 +271,21 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showPdfPageLimitDialog() {
+        val limits = intArrayOf(3, 10, 25, 50)
+        val labels = limits.map { pdfPageLimitLabel(it) }.toTypedArray()
+        val selectedIndex = limits.indexOf(currentPdfPageLimit).let { if (it >= 0) it else 1 }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("حد صفحات PDF")
+            .setMessage("عدد الصفحات التي يحللها نبض من ملفات PDF")
+            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
+                dialog.dismiss()
+                finishWithAction(ACTION_SET_PDF_PAGE_LIMIT, limits[which].toString())
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
     private fun showEmbeddingBackendDialog() {
         val values = arrayOf("auto", "mediapipe", "tflite")
         val labels = values.map { embeddingBackendLabel(it) }.toTypedArray()
@@ -292,6 +314,10 @@ class SettingsActivity : AppCompatActivity() {
             "semantic" -> "بحث دلالي"
             else -> "تلقائي"
         }
+    }
+
+    private fun pdfPageLimitLabel(limit: Int): String {
+        return "$limit صفحات"
     }
 
     private fun embeddingBackendLabel(value: String): String {
@@ -368,6 +394,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX = "build_document_semantic_index"
         const val ACTION_RAG_DIAGNOSTICS = "rag_diagnostics"
         const val ACTION_SET_DOCUMENT_ANSWER_LENGTH = "set_document_answer_length"
+        const val ACTION_SET_PDF_PAGE_LIMIT = "set_pdf_page_limit"
         const val ACTION_SET_RAG_SEARCH_MODE = "set_rag_search_mode"
         const val ACTION_SET_EMBEDDING_BACKEND = "set_embedding_backend"
         const val ACTION_CLEAR_SELECTED_DOCUMENT = "clear_selected_document"
