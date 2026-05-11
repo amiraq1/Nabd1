@@ -9,6 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.LocalDocument
+import com.example.localqwen.document.PdfSettings
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -28,10 +29,14 @@ class PdfProcessingWorker(
         val title = inputData.getString(KEY_PDF_TITLE)
             ?.takeIf { it.isNotBlank() }
             ?: DEFAULT_PDF_TITLE
+        val defaultPageLimit = PdfSettings.getPdfPageLimit(applicationContext)
+        val pageLimit = inputData.getInt(PdfSettings.KEY_PDF_PAGE_LIMIT, defaultPageLimit)
+            .takeIf { it > 0 }
+            ?: defaultPageLimit
         val uri = Uri.parse(uriString)
 
         return try {
-            val extractedText = extractPdfText(uri, title)
+            val extractedText = extractPdfText(uri, title, pageLimit)
             if (extractedText.isBlank()) {
                 return failureResult("لم يتم العثور على نص واضح في ملف PDF")
             }
@@ -63,22 +68,23 @@ class PdfProcessingWorker(
         }
     }
 
-    private suspend fun extractPdfText(uri: Uri, title: String): String {
+    private suspend fun extractPdfText(uri: Uri, title: String, pageLimit: Int): String {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
             applicationContext.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                 val renderer = PdfRenderer(descriptor)
                 try {
-                    val pageCount = minOf(renderer.pageCount, MAX_PDF_PAGES)
+                    val pageCount = renderer.pageCount
+                    val pagesToProcess = minOf(pageCount, pageLimit)
                     val text = StringBuilder()
 
-                    for (index in 0 until pageCount) {
+                    for (index in 0 until pagesToProcess) {
                         val currentPageNumber = index + 1
                         setProgress(
                             workDataOf(
                                 KEY_PDF_TITLE to title,
                                 KEY_PROGRESS_PAGE to currentPageNumber,
-                                KEY_PROGRESS_TOTAL to pageCount
+                                KEY_PROGRESS_TOTAL to pagesToProcess
                             )
                         )
 
@@ -155,7 +161,6 @@ class PdfProcessingWorker(
         const val KEY_PROGRESS_TOTAL = "progress_total"
 
         private const val DEFAULT_PDF_TITLE = "ملف PDF"
-        private const val MAX_PDF_PAGES = 50
         private const val MAX_PDF_BITMAP_DIMENSION = 2048
         private const val PDF_RENDER_SCALE = 1.2f
     }
