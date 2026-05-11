@@ -20,3 +20,5 @@ files/embeddings/
 .DS_Store
 *.log
 *.hprof
+FastVLM-0.5B/
+*.litertlm
