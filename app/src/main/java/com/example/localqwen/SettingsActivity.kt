@@ -126,6 +126,7 @@ class SettingsActivity : AppCompatActivity() {
             "ذاكرة نبض ($memoryEnabledLabel)",
             "عرض الذاكرة",
             "مسح الذاكرة",
+            "مساعدة نبض",
             "حول نبض",
             "سياسة الخصوصية",
             "نسخ تقرير بيتا"
@@ -137,9 +138,10 @@ class SettingsActivity : AppCompatActivity() {
                     0 -> finishWithAction(ACTION_TOGGLE_MEMORY)
                     1 -> finishWithAction(ACTION_SHOW_MEMORY)
                     2 -> finishWithAction(ACTION_CLEAR_MEMORY)
-                    3 -> finishWithAction(ACTION_ABOUT)
-                    4 -> {} // Open Privacy URL if exists
-                    5 -> finishWithAction(ACTION_COPY_BETA_REPORT)
+                    3 -> finishWithAction(ACTION_HELP)
+                    4 -> finishWithAction(ACTION_ABOUT)
+                    5 -> {} // Open Privacy URL if exists
+                    6 -> finishWithAction(ACTION_COPY_BETA_REPORT)
                 }
             }
             .show()
@@ -421,6 +423,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_TOGGLE_MEMORY = "toggle_memory"
         const val ACTION_SHOW_MEMORY = "show_memory"
         const val ACTION_CLEAR_MEMORY = "clear_memory"
+        const val ACTION_HELP = "help"
         const val ACTION_ABOUT = "about"
 
         fun createIntent(

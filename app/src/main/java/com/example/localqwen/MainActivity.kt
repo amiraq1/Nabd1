@@ -2005,6 +2005,118 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showHelpDialog() {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val sectionSpacing = (14 * density).toInt()
+        val titleColor = Color.parseColor("#FF7000")
+        val bodyColor = Color.WHITE
+        val secondaryColor = Color.parseColor("#A0A0A0")
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        fun addSection(title: String, body: String) {
+            val titleView = TextView(this).apply {
+                text = title
+                setTextColor(titleColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            val bodyView = TextView(this).apply {
+                text = body
+                setTextColor(bodyColor)
+                textSize = 14f
+                setLineSpacing(0f, 1.25f)
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+
+            content.addView(titleView)
+            content.addView(bodyView)
+            content.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    sectionSpacing
+                )
+            })
+        }
+
+        addSection(
+            "1. تشغيل نبض",
+            "لاستخدام المحادثة، استورد نموذج Gemma بصيغة .litertlm ثم اضغط تشغيل نبض."
+        )
+        addSection(
+            "2. استيراد النماذج",
+            "النماذج غير مدمجة داخل التطبيق بسبب الحجم والترخيص. يمكنك استيراد Gemma للمحادثة و FastVLM للرؤية من الإعدادات."
+        )
+        addSection(
+            "3. المستندات و PDF",
+            "يمكنك إضافة PDF أو صورة، ثم سؤال نبض عن المحتوى. يدعم PDF أرقام الصفحات مثل [الصفحة 1]."
+        )
+        addSection(
+            "4. حد صفحات PDF",
+            "إذا كان جهازك ضعيفًا، اختر حد صفحات أقل من إعدادات المستندات والبحث."
+        )
+        addSection(
+            "5. Ask Image",
+            "بدون نموذج رؤية، يستخدم نبض OCR لتحليل النص داخل الصورة. مع FastVLM يمكنه فهم الصورة بصريًا عند توفر النموذج."
+        )
+        addSection(
+            "6. البحث في المستندات",
+            "البحث النصي يعمل مباشرة. البحث الدلالي يحتاج نموذج تضمين وفهرسة المستند أولًا."
+        )
+        addSection(
+            "7. ذاكرة نبض",
+            "الذاكرة اختيارية ومحلية. يحفظ نبض فقط ما تطلب منه حفظه بصراحة مثل: تذكر أن اسمي عمار."
+        )
+        addSection(
+            "8. الخريطة",
+            "أداة الخريطة تفتح تطبيق خرائط خارجي بعد موافقتك، ولا يطلب نبض صلاحية GPS."
+        )
+        addSection(
+            "9. الخصوصية",
+            "نبض يعمل محليًا قدر الإمكان. لا يتم رفع المحادثات أو المستندات أو الصور إلى خادم خارجي من داخل التطبيق."
+        )
+        addSection(
+            "10. عند حدوث مشكلة",
+            "استخدم نسخ تقرير بيتا من الإعدادات وأرسله للمطور بدون مشاركة بيانات خاصة."
+        )
+
+        val noteView = TextView(this).apply {
+            text = "شرح سريع لاستخدام التطبيق"
+            setTextColor(secondaryColor)
+            textSize = 13f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+        content.addView(noteView, 0)
+        content.addView(
+            View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (10 * density).toInt()
+                )
+            },
+            1
+        )
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(content)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("مساعدة نبض")
+            .setView(scroll)
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
     private fun showLiteRtDiagnosticsDialog() {
         val diagnostics = buildLiteRtDiagnosticsData()
         MaterialAlertDialogBuilder(this)
@@ -3027,6 +3139,7 @@ class MainActivity : AppCompatActivity() {
             }
             SettingsActivity.ACTION_SHOW_MEMORY -> showMemoryDialog()
             SettingsActivity.ACTION_CLEAR_MEMORY -> confirmClearMemory()
+            SettingsActivity.ACTION_HELP -> showHelpDialog()
             SettingsActivity.ACTION_COPY_BETA_REPORT -> copyBetaReportToClipboard()
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
                 documentStore.clearSelectedDocumentId()
