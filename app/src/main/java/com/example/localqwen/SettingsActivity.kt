@@ -127,6 +127,8 @@ class SettingsActivity : AppCompatActivity() {
             "عرض الذاكرة",
             "مسح الذاكرة",
             "مساعدة نبض",
+            "ما الجديد في نبض\nآخر تحسينات النسخة التجريبية",
+            "إرسال ملاحظة للمطور\nاكتب مشكلة أو اقتراحًا للمساعدة في تحسين نبض",
             "حول نبض",
             "سياسة الخصوصية",
             "نسخ تقرير بيتا"
@@ -139,9 +141,11 @@ class SettingsActivity : AppCompatActivity() {
                     1 -> finishWithAction(ACTION_SHOW_MEMORY)
                     2 -> finishWithAction(ACTION_CLEAR_MEMORY)
                     3 -> finishWithAction(ACTION_HELP)
-                    4 -> finishWithAction(ACTION_ABOUT)
-                    5 -> {} // Open Privacy URL if exists
-                    6 -> finishWithAction(ACTION_COPY_BETA_REPORT)
+                    4 -> finishWithAction(ACTION_WHATS_NEW)
+                    5 -> finishWithAction(ACTION_SEND_FEEDBACK)
+                    6 -> finishWithAction(ACTION_ABOUT)
+                    7 -> {} // Open Privacy URL if exists
+                    8 -> finishWithAction(ACTION_COPY_BETA_REPORT)
                 }
             }
             .show()
@@ -153,6 +157,8 @@ class SettingsActivity : AppCompatActivity() {
             "Gemma E4B (${currentModelE4bStatus.ifBlank { "غير مستورد" }})",
             "نموذج الرؤية (FastVLM)",
             "نموذج التضمين",
+            "فحص الجاهزية\nتحقق من النماذج والمساحة قبل التشغيل",
+            "دليل استيراد النماذج\nشرح سريع لاختيار واستيراد النماذج",
             "تشخيص نموذج الذكاء"
         )
         MaterialAlertDialogBuilder(this)
@@ -169,7 +175,9 @@ class SettingsActivity : AppCompatActivity() {
                         }
                     }
                     3 -> showEmbeddingModelSubDialog()
-                    4 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
+                    4 -> finishWithAction(ACTION_READINESS_CHECK)
+                    5 -> finishWithAction(ACTION_MODEL_IMPORT_HELP)
+                    6 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
                 }
             }
             .show()
@@ -402,6 +410,8 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_IMPORT_VISION_MODEL = "import_vision_model"
         const val ACTION_DELETE_VISION_MODEL = "delete_vision_model"
         const val ACTION_LITERT_DIAGNOSTICS = "litert_diagnostics"
+        const val ACTION_READINESS_CHECK = "readiness_check"
+        const val ACTION_MODEL_IMPORT_HELP = "model_import_help"
         const val ACTION_IMPORT_EMBEDDING_MODEL = "import_embedding_model"
         const val ACTION_DELETE_EMBEDDING_MODEL = "delete_embedding_model"
         const val ACTION_DELETE_EMBEDDING_INDEXES = "delete_embedding_indexes"
@@ -420,6 +430,8 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_BACKGROUND_TASKS = "background_tasks"
         const val ACTION_LOCAL_MODEL_MANAGER = "local_model_manager"
         const val ACTION_COPY_BETA_REPORT = "copy_beta_report"
+        const val ACTION_WHATS_NEW = "whats_new"
+        const val ACTION_SEND_FEEDBACK = "send_feedback"
         const val ACTION_TOGGLE_MEMORY = "toggle_memory"
         const val ACTION_SHOW_MEMORY = "show_memory"
         const val ACTION_CLEAR_MEMORY = "clear_memory"

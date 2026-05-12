@@ -35,7 +35,7 @@ class MemoryStore(context: Context) {
     }
 
     fun addMemory(text: String, category: String = CATEGORY_GENERAL) {
-        val normalized = text.trim()
+        val normalized = normalizeText(text)
         if (normalized.isEmpty()) return
 
         val now = System.currentTimeMillis()
@@ -59,6 +59,25 @@ class MemoryStore(context: Context) {
             )
         }
         saveMemories(items)
+    }
+
+    fun updateMemory(id: String, newText: String): Boolean {
+        if (id.isBlank()) return false
+        val normalized = normalizeText(newText)
+        if (normalized.isEmpty()) return false
+
+        val now = System.currentTimeMillis()
+        val items = getAllMemories().toMutableList()
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return false
+
+        val current = items[index]
+        items[index] = current.copy(
+            text = normalized,
+            updatedAt = now
+        )
+        saveMemories(items)
+        return true
     }
 
     fun deleteMemory(id: String) {
@@ -93,6 +112,10 @@ class MemoryStore(context: Context) {
             )
         }
         preferences.edit().putString(KEY_MEMORY_JSON, array.toString()).apply()
+    }
+
+    private fun normalizeText(text: String): String {
+        return text.trim().replace(Regex("\\s+"), " ")
     }
 
     private fun normalizeCategory(category: String): String {

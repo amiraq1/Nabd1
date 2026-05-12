@@ -250,6 +250,7 @@ class MainActivity : AppCompatActivity() {
 
         inputView.addTextChangedListener(SimpleTextWatcher { updateButtons() })
         updateButtons()
+        showOnboardingIfNeeded()
     }
 
     override fun onDestroy() {
@@ -1185,16 +1186,10 @@ class MainActivity : AppCompatActivity() {
             return true
         }
 
-        if (containsSensitiveMemory(extracted)) {
-            val message = "لا يمكن حفظ معلومات حساسة في ذاكرة نبض."
-            addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
-            setStatusError(message)
-            saveActiveSessionDebounced(immediate = true)
-            return true
-        }
-
-        if (extracted.length > MAX_MEMORY_ITEM_CHARS) {
-            val message = "المعلومة طويلة جدًا. اكتبها بشكل أقصر."
+        validateMemoryInput(
+            text = extracted,
+            sensitiveMessage = "لا يمكن حفظ معلومات حساسة في ذاكرة نبض."
+        )?.let { message ->
             addChatMessage(ChatMessage(role = Role.ASSISTANT, text = message))
             setStatusError(message)
             saveActiveSessionDebounced(immediate = true)
@@ -1209,6 +1204,17 @@ class MainActivity : AppCompatActivity() {
         setStatusSuccess("تم تحديث ذاكرة نبض.")
         saveActiveSessionDebounced(immediate = true)
         return true
+    }
+
+    private fun validateMemoryInput(
+        text: String,
+        sensitiveMessage: String
+    ): String? {
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return "لا يمكن حفظ ذاكرة فارغة."
+        if (normalized.length > MAX_MEMORY_ITEM_CHARS) return "المعلومة طويلة جدًا. اكتبها بشكل أقصر."
+        if (containsSensitiveMemory(normalized)) return sensitiveMessage
+        return null
     }
 
     private fun buildMemoryListText(): String {
@@ -1250,12 +1256,223 @@ class MainActivity : AppCompatActivity() {
         return MemoryPromptBuilder.buildMemoryContext(memoryStore.getAllMemories())
     }
 
+    private fun memoryCategoryLabel(category: String): String {
+        return when (category) {
+            MemoryStore.CATEGORY_PREFERENCE -> "تفضيل"
+            MemoryStore.CATEGORY_PROFILE -> "ملف شخصي"
+            MemoryStore.CATEGORY_PROJECT -> "مشروع"
+            else -> "عام"
+        }
+    }
+
     private fun showMemoryDialog() {
-        val memoriesText = buildMemoryListText()
-        val privacyNote = "تُحفظ الذاكرة محليًا على جهازك فقط. لا تحفظ معلومات حساسة مثل كلمات المرور أو الأرقام السرية."
-        MaterialAlertDialogBuilder(this)
+        val memories = memoryStore.getAllMemories()
+        var memoryDialog: AlertDialog? = null
+        val density = resources.displayMetrics.density
+        val outerPadding = (16 * density).toInt()
+        val cardPadding = (12 * density).toInt()
+        val cardSpacing = (10 * density).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        val privacyNote = TextView(this).apply {
+            text = "تُحفظ الذاكرة محليًا على جهازك فقط. لا تحفظ معلومات حساسة مثل كلمات المرور أو الأرقام السرية."
+            setTextColor(Color.parseColor("#A0A0A0"))
+            textSize = 12f
+            setLineSpacing(0f, 1.2f)
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+        container.addView(privacyNote)
+
+        container.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (12 * density).toInt()
+            )
+        })
+
+        if (memories.isEmpty()) {
+            container.addView(
+                TextView(this).apply {
+                    text = "ذاكرة نبض فارغة."
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    textDirection = View.TEXT_DIRECTION_LOCALE
+                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                }
+            )
+        } else {
+            memories.forEach { memory ->
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_RTL
+                    setBackgroundColor(Color.parseColor("#242424"))
+                    setPadding(cardPadding, cardPadding, cardPadding, cardPadding)
+                }
+
+                val topRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutDirection = View.LAYOUT_DIRECTION_RTL
+                }
+
+                val editButton = TextView(this).apply {
+                    text = "تعديل"
+                    setTextColor(Color.parseColor("#FF7000"))
+                    textSize = 13f
+                    textDirection = View.TEXT_DIRECTION_LOCALE
+                    textAlignment = View.TEXT_ALIGNMENT_CENTER
+                    setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+                    setOnClickListener {
+                        val editInput = EditText(this@MainActivity).apply {
+                            setText(memory.text)
+                            setSelection(memory.text.length)
+                            setTextColor(Color.WHITE)
+                            setHintTextColor(Color.parseColor("#A0A0A0"))
+                            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_input)
+                            minLines = 3
+                            maxLines = 6
+                            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                            textDirection = View.TEXT_DIRECTION_LOCALE
+                            layoutDirection = View.LAYOUT_DIRECTION_RTL
+                            setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt())
+                        }
+
+                        val editContainer = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutDirection = View.LAYOUT_DIRECTION_RTL
+                            setBackgroundColor(Color.parseColor("#171717"))
+                            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (8 * density).toInt())
+                            addView(
+                                editInput,
+                                LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                )
+                            )
+                        }
+
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("تعديل عنصر الذاكرة")
+                            .setView(editContainer)
+                            .setNegativeButton("إلغاء", null)
+                            .setPositiveButton("حفظ") { _, _ ->
+                                val updatedText = editInput.text?.toString()?.trim().orEmpty()
+                                validateMemoryInput(
+                                    text = updatedText,
+                                    sensitiveMessage = "لا يمكن حفظ معلومات حساسة في الذاكرة."
+                                )?.let { message ->
+                                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                                    return@setPositiveButton
+                                }
+
+                                val updated = memoryStore.updateMemory(memory.id, updatedText)
+                                if (updated) {
+                                    Toast.makeText(this@MainActivity, "تم تحديث عنصر الذاكرة", Toast.LENGTH_SHORT).show()
+                                    memoryDialog?.dismiss()
+                                    showMemoryDialog()
+                                }
+                            }
+                            .show()
+                    }
+                }
+
+                val deleteButton = TextView(this).apply {
+                    text = "حذف"
+                    setTextColor(Color.parseColor("#EF4444"))
+                    textSize = 13f
+                    textDirection = View.TEXT_DIRECTION_LOCALE
+                    textAlignment = View.TEXT_ALIGNMENT_CENTER
+                    setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+                    setOnClickListener {
+                        MaterialAlertDialogBuilder(this@MainActivity)
+                            .setTitle("تأكيد الحذف")
+                            .setMessage("هل تريد حذف هذا العنصر من ذاكرة نبض؟")
+                            .setNegativeButton("إلغاء", null)
+                            .setPositiveButton("حذف") { _, _ ->
+                                memoryStore.deleteMemory(memory.id)
+                                Toast.makeText(this@MainActivity, "تم حذف عنصر الذاكرة", Toast.LENGTH_SHORT).show()
+                                memoryDialog?.dismiss()
+                                showMemoryDialog()
+                            }
+                            .show()
+                    }
+                }
+
+                val textView = TextView(this).apply {
+                    text = memory.text
+                    setTextColor(Color.WHITE)
+                    textSize = 14f
+                    setLineSpacing(0f, 1.2f)
+                    textDirection = View.TEXT_DIRECTION_LOCALE
+                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                }
+
+                topRow.addView(
+                    deleteButton,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                topRow.addView(
+                    editButton,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                topRow.addView(
+                    textView,
+                    LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f
+                    )
+                )
+
+                val secondaryText = TextView(this).apply {
+                    val dateLabel = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(memory.updatedAt))
+                    text = "${memoryCategoryLabel(memory.category)} • $dateLabel"
+                    setTextColor(Color.parseColor("#A0A0A0"))
+                    textSize = 12f
+                    textDirection = View.TEXT_DIRECTION_LOCALE
+                    textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                }
+
+                card.addView(topRow)
+                card.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        (6 * density).toInt()
+                    )
+                })
+                card.addView(secondaryText)
+
+                container.addView(
+                    card,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin = cardSpacing
+                    }
+                )
+            }
+        }
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(container)
+        }
+
+        memoryDialog = MaterialAlertDialogBuilder(this)
             .setTitle("ذاكرة نبض")
-            .setMessage("$privacyNote\n\n$memoriesText")
+            .setView(scroll)
             .setPositiveButton("إغلاق", null)
             .show()
     }
@@ -2080,6 +2297,89 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showOnboardingIfNeeded() {
+        if (preferences.getBoolean(KEY_ONBOARDING_SEEN, false)) return
+        showOnboardingDialog()
+    }
+
+    private fun showOnboardingDialog() {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val sectionSpacing = (12 * density).toInt()
+        val titleColor = Color.parseColor("#FF7000")
+        val bodyColor = Color.WHITE
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        fun addSection(title: String, body: String) {
+            val titleView = TextView(this).apply {
+                text = title
+                setTextColor(titleColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            val bodyView = TextView(this).apply {
+                text = body
+                setTextColor(bodyColor)
+                textSize = 14f
+                setLineSpacing(0f, 1.25f)
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            content.addView(titleView)
+            content.addView(bodyView)
+            content.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    sectionSpacing
+                )
+            })
+        }
+
+        addSection(
+            "نبض",
+            "نبض مساعد ذكاء اصطناعي محلي يعمل داخل جهازك."
+        )
+        addSection(
+            "للبدء",
+            "1. استورد نموذج Gemma بصيغة .litertlm من الإعدادات.\n" +
+                "2. اضغط تشغيل نبض.\n" +
+                "3. أضف PDF أو صورة إذا أردت تحليل مستند.\n" +
+                "4. استخدم الذاكرة بقولك: تذكر أن..."
+        )
+        addSection(
+            "ملاحظة",
+            "النماذج غير مدمجة داخل التطبيق بسبب الحجم والترخيص."
+        )
+        addSection(
+            "الخصوصية",
+            "المحادثات والمستندات والصور تُعالج محليًا قدر الإمكان."
+        )
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(content)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("مرحبًا بك في نبض")
+            .setView(scroll)
+            .setPositiveButton("فهمت") { _, _ ->
+                preferences.edit().putBoolean(KEY_ONBOARDING_SEEN, true).apply()
+            }
+            .setNeutralButton("افتح الإعدادات") { _, _ ->
+                preferences.edit().putBoolean(KEY_ONBOARDING_SEEN, true).apply()
+                openSettingsPage()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
     private fun showHelpDialog() {
         val density = resources.displayMetrics.density
         val outerPadding = (20 * density).toInt()
@@ -2316,6 +2616,197 @@ class MainActivity : AppCompatActivity() {
             .setTitle("فحص جاهزية نبض")
             .setView(scroll)
             .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showFeedbackDialog() {
+        val density = resources.displayMetrics.density
+        val padding = (20 * density).toInt()
+
+        val input = EditText(this).apply {
+            hint = "اكتب ملاحظتك هنا..."
+            setHintTextColor(Color.parseColor("#A0A0A0"))
+            setTextColor(Color.WHITE)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_input)
+            minLines = 5
+            maxLines = 10
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(28, 28, 28, 28)
+        }
+
+        val privacyNote = TextView(this).apply {
+            text = "لا تكتب كلمات مرور أو معلومات حساسة. سيتم تجهيز النص للمشاركة يدويًا فقط."
+            setTextColor(Color.parseColor("#A0A0A0"))
+            textSize = 12f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            setLineSpacing(0f, 1.2f)
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setBackgroundColor(Color.parseColor("#171717"))
+            setPadding(padding, padding, padding, padding)
+            addView(
+                input,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                privacyNote,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (10 * density).toInt()
+                }
+            )
+        }
+
+        fun buildFeedbackText(note: String): String {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            val versionName = packageInfo.versionName ?: "غير متاح"
+            val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toString()
+            }
+            val date = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date())
+            val device = "${Build.MANUFACTURER} ${Build.MODEL}"
+            val androidInfo = "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})"
+
+            return """
+                ملاحظة مستخدم - نبض
+                التاريخ: $date
+                الإصدار: $versionName ($versionCode)
+                الجهاز: $device
+                النظام: $androidInfo
+                الملاحظة:
+                $note
+            """.trimIndent()
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("إرسال ملاحظة للمطور")
+            .setView(content)
+            .setNegativeButton("إلغاء", null)
+            .setNeutralButton("نسخ الملاحظة") { _, _ ->
+                val note = input.text?.toString()?.trim().orEmpty()
+                if (note.isBlank()) {
+                    Toast.makeText(this, "اكتب الملاحظة أولًا.", Toast.LENGTH_SHORT).show()
+                    return@setNeutralButton
+                }
+                val formatted = buildFeedbackText(note)
+                copyToClipboard("Nabd User Feedback", formatted)
+                Toast.makeText(this, "تم نسخ الملاحظة", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("مشاركة") { _, _ ->
+                val note = input.text?.toString()?.trim().orEmpty()
+                if (note.isBlank()) {
+                    Toast.makeText(this, "اكتب الملاحظة أولًا.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val formatted = buildFeedbackText(note)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, formatted)
+                }
+                startActivity(Intent.createChooser(shareIntent, "مشاركة الملاحظة"))
+            }
+            .show()
+    }
+
+    private fun showWhatsNewDialog() {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val titleColor = Color.parseColor("#FF7000")
+        val bodyColor = Color.WHITE
+        val secondaryColor = Color.parseColor("#A0A0A0")
+
+        val changesText = """
+            v0.1.2 Beta
+
+            - تبسيط واجهة الخيارات والإعدادات.
+            - إصلاح مشكلة Room Migration عند التحديث.
+            - تحسين معالجة PDF مع دعم حد صفحات قابل للتخصيص.
+            - إضافة أرقام الصفحات إلى نصوص PDF.
+            - إصلاح اختيار النموذج من الإعدادات.
+            - تحسين استرداد المستند المحدد في RAG.
+            - إضافة ذاكرة نبض المحلية الاختيارية.
+            - إضافة مساعدة داخل التطبيق ودليل استيراد النماذج.
+            - تحسين تقرير بيتا وإرسال الملاحظات.
+            - تحسينات استقرار وتجربة مستخدم.
+
+            ملاحظة:
+            نبض ما زال في مرحلة Beta، وقد يختلف الأداء حسب الجهاز والنموذج.
+        """.trimIndent()
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        val versionTitle = TextView(this).apply {
+            text = "v0.1.2 Beta"
+            setTextColor(titleColor)
+            textSize = 16f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+
+        val bodyView = TextView(this).apply {
+            text = changesText
+            setTextColor(bodyColor)
+            textSize = 14f
+            setLineSpacing(0f, 1.25f)
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+
+        val noteView = TextView(this).apply {
+            text = "آخر تحسينات النسخة التجريبية"
+            setTextColor(secondaryColor)
+            textSize = 12f
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        }
+
+        content.addView(noteView)
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (8 * density).toInt()
+            )
+        })
+        content.addView(versionTitle)
+        content.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (10 * density).toInt()
+            )
+        })
+        content.addView(bodyView)
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(content)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("ما الجديد في نبض")
+            .setView(scroll)
+            .setPositiveButton("إغلاق", null)
+            .setNeutralButton("نسخ التغييرات") { _, _ ->
+                copyToClipboard("Nabd What's New", changesText)
+                Toast.makeText(this, "تم نسخ التغييرات", Toast.LENGTH_SHORT).show()
+            }
             .show()
     }
 
@@ -3343,6 +3834,8 @@ class MainActivity : AppCompatActivity() {
             }
             SettingsActivity.ACTION_SHOW_MEMORY -> showMemoryDialog()
             SettingsActivity.ACTION_CLEAR_MEMORY -> confirmClearMemory()
+            SettingsActivity.ACTION_WHATS_NEW -> showWhatsNewDialog()
+            SettingsActivity.ACTION_SEND_FEEDBACK -> showFeedbackDialog()
             SettingsActivity.ACTION_HELP -> showHelpDialog()
             SettingsActivity.ACTION_COPY_BETA_REPORT -> copyBetaReportToClipboard()
             SettingsActivity.ACTION_CLEAR_SELECTED_DOCUMENT -> {
@@ -4599,6 +5092,7 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CHAT_HISTORY_TEXT = "chat_history_text"
         private const val KEY_CHAT_MESSAGES_JSON = "chat_messages_json"
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
+        private const val KEY_ONBOARDING_SEEN = "onboarding_seen"
         private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
         private const val KEY_EMBEDDING_BACKEND = "embedding_backend"
         private const val MAX_DOCUMENT_CONTEXT_CHARS = 5_000
