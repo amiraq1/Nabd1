@@ -1989,19 +1989,94 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAboutDialog() {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val versionName = packageInfo.versionName ?: "غير متاح"
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode.toString()
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toString()
+        }
+
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val sectionSpacing = (14 * density).toInt()
+        val titleColor = Color.parseColor("#FF7000")
+        val bodyColor = Color.WHITE
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        fun addSection(title: String, body: String) {
+            val titleView = TextView(this).apply {
+                text = title
+                setTextColor(titleColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            val bodyView = TextView(this).apply {
+                text = body
+                setTextColor(bodyColor)
+                textSize = 14f
+                setLineSpacing(0f, 1.25f)
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            content.addView(titleView)
+            content.addView(bodyView)
+            content.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    sectionSpacing
+                )
+            })
+        }
+
+        addSection("نبض", "مساعد ذكاء اصطناعي محلي يعمل على Android.")
+        addSection(
+            "الفكرة",
+            "تشغيل نماذج ذكاء اصطناعي محلية داخل الجهاز، مع دعم المحادثة، المستندات، الصور، الذاكرة، وأدوات آمنة بإذن المستخدم."
+        )
+        addSection(
+            "الخصوصية",
+            "يعالج نبض المحادثات والمستندات والصور محليًا قدر الإمكان. لا يتم رفع بياناتك إلى خادم خارجي من داخل التطبيق."
+        )
+        addSection(
+            "النماذج",
+            "النماذج غير مدمجة داخل التطبيق بسبب الحجم والترخيص. يجب استيراد ملفات .litertlm يدويًا."
+        )
+        addSection("المطور", "عمار محمد التميمي")
+        addSection("الإصدار", "versionName: $versionName\nversionCode: $versionCode")
+        addSection(
+            "ملاحظة",
+            "نبض ما زال في مرحلة Beta، وقد يختلف الأداء حسب الجهاز والنموذج المستخدم."
+        )
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(content)
+        }
+
+        val copyInfo = """
+            اسم التطبيق: نبض
+            الإصدار: $versionName ($versionCode)
+            المطور: عمار محمد التميمي
+            النماذج غير مدمجة داخل التطبيق ويجب استيراد ملفات .litertlm يدويًا.
+            التطبيق في مرحلة Beta.
+        """.trimIndent()
+
         MaterialAlertDialogBuilder(this)
             .setTitle("حول نبض")
-            .setMessage(
-                """
-                نبض
-                مساعد محلي يعمل على جهازك.
-
-                النماذج المدعومة:
-                • Gemma E2B
-                • Gemma E4B
-                """.trimIndent()
-            )
+            .setView(scroll)
             .setPositiveButton("إغلاق", null)
+            .setNeutralButton("نسخ معلومات التطبيق") { _, _ ->
+                copyToClipboard("Nabd App Info", copyInfo)
+                Toast.makeText(this, "تم نسخ معلومات التطبيق", Toast.LENGTH_SHORT).show()
+            }
             .show()
     }
 
@@ -2112,6 +2187,133 @@ class MainActivity : AppCompatActivity() {
 
         MaterialAlertDialogBuilder(this)
             .setTitle("مساعدة نبض")
+            .setView(scroll)
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showModelImportHelpDialog() {
+        val density = resources.displayMetrics.density
+        val outerPadding = (20 * density).toInt()
+        val sectionSpacing = (14 * density).toInt()
+        val titleColor = Color.parseColor("#FF7000")
+        val bodyColor = Color.WHITE
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(outerPadding, outerPadding, outerPadding, outerPadding)
+        }
+
+        fun addSection(title: String, body: String) {
+            val titleView = TextView(this).apply {
+                text = title
+                setTextColor(titleColor)
+                textSize = 15f
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            val bodyView = TextView(this).apply {
+                text = body
+                setTextColor(bodyColor)
+                textSize = 14f
+                setLineSpacing(0f, 1.25f)
+                textDirection = View.TEXT_DIRECTION_LOCALE
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            }
+            content.addView(titleView)
+            content.addView(bodyView)
+            content.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    sectionSpacing
+                )
+            })
+        }
+
+        addSection(
+            "1. ما هو ملف .litertlm؟",
+            "هو ملف النموذج المحلي الذي يستخدمه نبض لتشغيل الذكاء الاصطناعي داخل جهازك."
+        )
+        addSection(
+            "2. أي نموذج أختار؟",
+            "ابدأ بـ Gemma E2B إذا كان جهازك متوسطًا أو ضعيفًا. استخدم Gemma E4B إذا كان جهازك أقوى ولديك ذاكرة كافية."
+        )
+        addSection(
+            "3. نموذج الرؤية FastVLM",
+            "FastVLM اختياري ويُستخدم لفهم الصور بصريًا في Ask Image. إذا لم تستورده، يستخدم نبض OCR لتحليل النص داخل الصورة."
+        )
+        addSection(
+            "4. نموذج التضمين",
+            "نموذج التضمين اختياري ويُستخدم للبحث الدلالي داخل المستندات. إذا لم يكن جاهزًا، يستخدم نبض البحث النصي."
+        )
+        addSection(
+            "5. لماذا النماذج غير مدمجة؟",
+            "بسبب الحجم والترخيص. يجب على المستخدم استيراد النماذج يدويًا."
+        )
+        addSection(
+            "6. إذا فشل الاستيراد",
+            "تأكد أن الملف بصيغة .litertlm، وأن لديك مساحة كافية، ثم حاول مرة أخرى."
+        )
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(content)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("دليل استيراد النماذج")
+            .setView(scroll)
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
+
+    private fun showReadinessCheckDialog() {
+        val selectedModelLabel = when (selectedModel.id) {
+            MODEL_ID_E2B -> "Gemma E2B"
+            MODEL_ID_E4B -> "Gemma E4B"
+            else -> selectedModel.displayName
+        }
+
+        val chatModelReady = modelManager.isModelImported(selectedModel.id)
+        val visionReady = modelManager.isModelImported(ModelManager.VISION_MODEL.id)
+        val embeddingReady = embeddingModelManager.isEmbeddingModelReady()
+        val freeBytes = filesDir.usableSpace
+        val freeGb = freeBytes / (1024f * 1024f * 1024f)
+        val freeSpaceLine = String.format(Locale.US, "المساحة الحرة: %.1f GB", freeGb)
+        val isLowSpace = freeGb < 2f
+
+        val content = buildString {
+            appendLine(if (chatModelReady) "✅ نموذج المحادثة مستورد" else "⚠️ نموذج المحادثة غير مستورد")
+            appendLine("النموذج المحدد: $selectedModelLabel")
+            appendLine(if (visionReady) "✅ نموذج الرؤية مستورد" else "اختياري: نموذج الرؤية غير مستورد")
+            appendLine(if (embeddingReady) "✅ نموذج التضمين مستورد" else "اختياري: نموذج التضمين غير مستورد")
+            appendLine(freeSpaceLine)
+            if (isLowSpace) {
+                appendLine("⚠️ المساحة الحرة منخفضة")
+            }
+            appendLine()
+            append("يمكن تشغيل نبض إذا كان نموذج المحادثة مستوردًا. باقي النماذج اختيارية.")
+        }
+
+        val messageView = TextView(this).apply {
+            text = content
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setLineSpacing(0f, 1.25f)
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(24, 12, 24, 8)
+        }
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#171717"))
+            addView(messageView)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("فحص جاهزية نبض")
             .setView(scroll)
             .setPositiveButton("إغلاق", null)
             .show()
@@ -3105,6 +3307,8 @@ class MainActivity : AppCompatActivity() {
             SettingsActivity.ACTION_MANAGE_MODEL_E4B -> showMainModelManagementDialog(modelById(MODEL_ID_E4B))
             SettingsActivity.ACTION_IMPORT_VISION_MODEL -> openVisionModelPicker()
             SettingsActivity.ACTION_DELETE_VISION_MODEL -> confirmDeleteVisionModel()
+            SettingsActivity.ACTION_READINESS_CHECK -> showReadinessCheckDialog()
+            SettingsActivity.ACTION_MODEL_IMPORT_HELP -> showModelImportHelpDialog()
             SettingsActivity.ACTION_LITERT_DIAGNOSTICS -> showLiteRtDiagnosticsDialog()
             SettingsActivity.ACTION_IMPORT_EMBEDDING_MODEL -> openEmbeddingModelPicker()
             SettingsActivity.ACTION_DELETE_EMBEDDING_MODEL -> confirmDeleteEmbeddingModel()
