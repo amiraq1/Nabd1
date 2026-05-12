@@ -1,5 +1,7 @@
 package com.example.localqwen.prompt
 
+import com.example.localqwen.document.DocumentMessageFormatter
+
 object NabdSystemPrompt {
 
     fun baseIdentityPrompt(): String {
@@ -49,7 +51,7 @@ $memorySection
             تعليمات مهمة:
             - اعتمد "فقط" على سياق المستند المرفق للإجابة.
             - لا تستخدم معلوماتك الخارجية أو معرفتك السابقة التي لا توجد في النص.
-            - إذا لم تجد الإجابة في السياق، قل بوضوح: "لا يحتوي النص المتوفر على إجابة كافية."
+            - إذا لم تجد الإجابة في السياق، قل بوضوح: "${DocumentMessageFormatter.insufficientDocumentAnswerMessage()}"
             - اكتب الإجابة من المستند بدقة ووضوح.
             - اذكر اسم المصدر المذكور في المقتطف إذا لزم الأمر.
             - $answerLengthInstruction

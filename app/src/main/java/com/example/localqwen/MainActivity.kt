@@ -1028,20 +1028,27 @@ class MainActivity : AppCompatActivity() {
                 "اختر مستندًا من المكتبة أولًا."
             }
         )
+        if (document.extractedText.isBlank()) {
+            return DocumentRetrievalOutcome(
+                generationStatus = DocumentMessageFormatter.insufficientDocumentAnswerMessage()
+            )
+        }
         val keywordResults = { retrieveKeywordDocumentChunks(document, query) }
 
         return when (ragMode) {
             RagMode.KEYWORD -> {
                 DocumentRetrievalOutcome(
-                    chunks = keywordResults(),
+                    chunks = sanitizeRetrievedChunks(keywordResults()),
                     generationStatus = KEYWORD_GENERATION_STATUS
                 )
             }
             RagMode.AUTO -> {
                 val canUseSemantic = embeddingEngine.isReady() && embeddingStore.hasIndex(document.id)
                 if (canUseSemantic) {
-                    val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
-                        .map { it.copy(documentTitle = document.title) }
+                    val semanticResults = sanitizeRetrievedChunks(
+                        semanticRetriever.retrieveSemantic(document.id, query)
+                            .map { it.copy(documentTitle = document.title) }
+                    )
                     if (semanticResults.isNotEmpty()) {
                         DocumentRetrievalOutcome(
                             chunks = semanticResults,
@@ -1049,13 +1056,13 @@ class MainActivity : AppCompatActivity() {
                         )
                     } else {
                         DocumentRetrievalOutcome(
-                            chunks = keywordResults(),
+                            chunks = sanitizeRetrievedChunks(keywordResults()),
                             generationStatus = KEYWORD_GENERATION_STATUS
                         )
                     }
                 } else {
                     DocumentRetrievalOutcome(
-                        chunks = keywordResults(),
+                        chunks = sanitizeRetrievedChunks(keywordResults()),
                         generationStatus = KEYWORD_GENERATION_STATUS
                     )
                 }
@@ -1063,13 +1070,15 @@ class MainActivity : AppCompatActivity() {
             RagMode.SEMANTIC -> {
                 if (!embeddingEngine.isReady() || !embeddingStore.hasIndex(document.id)) {
                     return DocumentRetrievalOutcome(
-                        chunks = keywordResults(),
+                        chunks = sanitizeRetrievedChunks(keywordResults()),
                         generationStatus = "البحث الدلالي غير جاهز، تم استخدام البحث النصي مؤقتًا."
                     )
                 }
 
-                val semanticResults = semanticRetriever.retrieveSemantic(document.id, query)
-                    .map { it.copy(documentTitle = document.title) }
+                val semanticResults = sanitizeRetrievedChunks(
+                    semanticRetriever.retrieveSemantic(document.id, query)
+                        .map { it.copy(documentTitle = document.title) }
+                )
                 if (semanticResults.isNotEmpty()) {
                     DocumentRetrievalOutcome(
                         chunks = semanticResults,
@@ -1079,12 +1088,20 @@ class MainActivity : AppCompatActivity() {
                     val failureReason = semanticRetriever.lastFailureReason()
                         ?: embeddingEngine.lastFailureReason()
                     DocumentRetrievalOutcome(
-                        chunks = keywordResults(),
+                        chunks = sanitizeRetrievedChunks(keywordResults()),
                         generationStatus = semanticFallbackGenerationStatus(failureReason)
                     )
                 }
             }
         }
+    }
+
+    private fun sanitizeRetrievedChunks(chunks: List<RetrievedChunk>): List<RetrievedChunk> {
+        return chunks
+            .asSequence()
+            .filter { it.text.isNotBlank() }
+            .distinctBy { "${it.documentId}:${it.chunkIndex}:${it.text.trim()}" }
+            .toList()
     }
 
     private fun semanticFallbackGenerationStatus(reason: String?): String {
@@ -1110,16 +1127,22 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        val builder = StringBuilder()
-        builder.append("استخدم المعلومات التالية من المستندات للإجابة:\n\n")
+        val includedBlocks = mutableListOf<String>()
+        var totalLength = "استخدم المعلومات التالية من المستندات للإجابة:\n\n".length
         outcome.chunks.forEachIndexed { index, chunk ->
             val block = "المصدر [${index + 1}]: ${chunk.documentTitle}\nالنص: ${chunk.text.safeTruncate(DOCUMENT_CHUNK_SIZE)}"
-            if (builder.length + block.length + 4 <= MAX_DOCUMENT_CONTEXT_CHARS) {
-                if (index > 0) builder.append("\n---\n")
-                builder.append(block)
+            val separatorLength = if (includedBlocks.isEmpty()) 0 else 5
+            if (totalLength + separatorLength + block.length <= MAX_DOCUMENT_CONTEXT_CHARS) {
+                includedBlocks.add(block)
+                totalLength += separatorLength + block.length
             }
         }
-        val context = builder.toString().takeIf { it.isNotBlank() }
+        val context = includedBlocks
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(
+                separator = "\n---\n",
+                prefix = "استخدم المعلومات التالية من المستندات للإجابة:\n\n"
+            )
 
         lastRagOperation = LastRagOperationResult(
             query = query,
@@ -1526,34 +1549,62 @@ class MainActivity : AppCompatActivity() {
         addChatMessage(ChatMessage(role = Role.USER, text = input))
         val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
         addChatMessage(assistantMessage)
+        saveActiveSessionDebounced(immediate = true)
 
         isPreparingDocumentContext = true
         updateButtons()
 
         scope.launch {
-            val hasDoc = getSelectedDocument() != null
+            val selectedDocument = getSelectedDocument()
+            val shouldUseDocumentContext = shouldUseDocumentContext(input, selectedDocument)
             setStatusInfo(
-                if (hasDoc) {
+                if (shouldUseDocumentContext) {
                     "جاري تجهيز سياق المستند..."
                 } else {
                     DEFAULT_GENERATION_STATUS
                 }
             )
 
-            val contextResult = try {
-                withContext(Dispatchers.IO) { buildDocumentContext(input) }
-            } catch (_: Exception) {
+            val contextResult = if (shouldUseDocumentContext) {
+                try {
+                    withContext(Dispatchers.IO) { buildDocumentContext(input) }
+                } catch (_: Exception) {
+                    DocumentContextResult(
+                        context = null,
+                        generationStatus = DEFAULT_GENERATION_STATUS
+                    )
+                } finally {
+                    isPreparingDocumentContext = false
+                }
+            } else {
+                isPreparingDocumentContext = false
                 DocumentContextResult(
                     context = null,
                     generationStatus = DEFAULT_GENERATION_STATUS
                 )
-            } finally {
-                isPreparingDocumentContext = false
             }
 
             withContext(Dispatchers.Main) {
                 updateButtons()
                 setStatusInfo(contextResult.generationStatus)
+
+                if (shouldUseDocumentContext && contextResult.context == null) {
+                    val message = DocumentMessageFormatter.insufficientDocumentAnswerMessage()
+                    lastAssistantResponse = message
+                    updateAssistantMessage(
+                        text = message,
+                        forceScroll = true,
+                        preserveMarkdown = false,
+                        renderMarkdown = false
+                    )
+                    saveActiveSessionDebounced(
+                        autoTitle = chatMessages.count { it.role == Role.USER } == 1,
+                        firstUserMessage = input,
+                        immediate = true
+                    )
+                    setStatusSuccess("جاهز")
+                    return@withContext
+                }
 
                 val prompt = if (contextResult.context != null) {
                     NabdSystemPrompt.documentPrompt(
@@ -1579,6 +1630,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun shouldUseDocumentContext(input: String, selectedDocument: LocalDocument?): Boolean {
+        if (selectedDocument == null) return false
+        if (selectedDocument.extractedText.isBlank()) return false
+
+        val normalizedInput = input.trim().lowercase(Locale.ROOT)
+        if (normalizedInput.isBlank()) return false
+
+        return DOCUMENT_CONTEXT_QUERY_KEYWORDS.any { keyword ->
+            normalizedInput.contains(keyword)
+        }
+    }
+
+    private fun ensureAssistantFailureMessage(message: String) {
+        if (activeAssistantMessageIndex !in chatMessages.indices) return
+        if (chatMessages[activeAssistantMessageIndex].text.isNotBlank()) return
+        lastAssistantResponse = message
+        updateAssistantMessage(
+            text = message,
+            forceScroll = true,
+            preserveMarkdown = false,
+            renderMarkdown = false
+        )
+    }
+
     private fun addChatMessage(message: ChatMessage) {
         val normalizedMessage = if (message.text.isBlank()) {
             message
@@ -1589,7 +1664,7 @@ class MainActivity : AppCompatActivity() {
         if (normalizedMessage.role == Role.ASSISTANT && normalizedMessage.text.isNotBlank()) {
             lastAssistantResponse = normalizedMessage.text
         }
-        chatAdapter.addMessage(normalizedMessage)
+        chatAdapter.submitMessages(chatMessages.map { it.copy() })
         if (normalizedMessage.role == Role.ASSISTANT) {
             activeAssistantMessageIndex = chatMessages.lastIndex
         }
@@ -1678,6 +1753,12 @@ class MainActivity : AppCompatActivity() {
     ) {
         val engine = textInferenceEngine
         if (engine == null || !engine.isReady()) {
+            ensureAssistantFailureMessage(NabdErrorMessages.modelLoadFailed())
+            saveActiveSessionDebounced(
+                autoTitle = autoTitle,
+                firstUserMessage = firstUserMessage,
+                immediate = true
+            )
             setStatusError(NabdErrorMessages.modelLoadFailed())
             return
         }
@@ -1751,6 +1832,7 @@ class MainActivity : AppCompatActivity() {
                 val generationFinishedAt = SystemClock.elapsedRealtime()
                 lastGenerationFinishedAtElapsedMs = generationFinishedAt
                 lastGenerationDurationMs = generationFinishedAt - generationStartedAt
+                ensureAssistantFailureMessage(NabdErrorMessages.generationFailed())
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage,
@@ -1761,6 +1843,7 @@ class MainActivity : AppCompatActivity() {
                 val generationFinishedAt = SystemClock.elapsedRealtime()
                 lastGenerationFinishedAtElapsedMs = generationFinishedAt
                 lastGenerationDurationMs = generationFinishedAt - generationStartedAt
+                ensureAssistantFailureMessage(NabdErrorMessages.generationFailed())
                 saveActiveSessionDebounced(
                     autoTitle = autoTitle,
                     firstUserMessage = firstUserMessage,
@@ -1811,7 +1894,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadModel() {
         if (!modelManager.isModelReady(selectedModel)) {
-            setStatusError("النموذج غير موجود")
+            setStatusError("تعذر تشغيل النموذج. تأكد من استيراده أولًا.")
             return
         }
         if (isLoadingModel) return
@@ -1827,20 +1910,21 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             try {
                 val requestModel = selectedModel
-                
                 val newEngine = com.example.localqwen.engine.LiteRtLmInferenceEngine()
-                newEngine.load(modelManager.modelPath(requestModel), cacheDir.absolutePath)
-                
+                withContext(Dispatchers.IO) {
+                    closeModelResourcesSuspend()
+                    newEngine.load(modelManager.modelPath(requestModel), cacheDir.absolutePath)
+                }
                 textInferenceEngine = newEngine
                 loadedModelId = requestModel.id
                 localEngineLastErrorMessage = null
                 setStatusSuccess("تم تشغيل نبض")
             } catch (oom: OutOfMemoryError) {
-                closeModelResources()
+                withContext(Dispatchers.IO) { closeModelResourcesSuspend() }
                 localEngineLastErrorMessage = oom.message ?: "نفاد الذاكرة أثناء تحميل النموذج."
                 setStatusError(NabdErrorMessages.modelLoadFailed())
             } catch (exception: Exception) {
-                closeModelResources()
+                withContext(Dispatchers.IO) { closeModelResourcesSuspend() }
                 localEngineLastErrorMessage = exception.message ?: "فشل تحميل النموذج."
                 setStatusError(NabdErrorMessages.modelLoadFailed())
             } finally {
@@ -1859,7 +1943,7 @@ class MainActivity : AppCompatActivity() {
 
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { closeModelResources() }
+                withContext(Dispatchers.IO) { closeModelResourcesSuspend() }
                 if (postSuccessMessage.isNullOrBlank()) {
                     setStatusInfo("تم إيقاف نبض")
                 } else {
@@ -1873,15 +1957,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeModelResources() {
-        synchronized(modelLock) {
-            closeModelResourcesLocked()
+        val engineToClose = synchronized(modelLock) {
+            val currentEngine = textInferenceEngine
+            textInferenceEngine = null
+            loadedModelId = null
+            currentEngine
+        }
+        if (engineToClose == null) return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { engineToClose.unload() }
         }
     }
 
-    private fun closeModelResourcesLocked() {
-        runCatching { kotlinx.coroutines.runBlocking { textInferenceEngine?.unload() } }
-        textInferenceEngine = null
-        loadedModelId = null
+    private suspend fun closeModelResourcesSuspend() {
+        val engineToClose = synchronized(modelLock) {
+            val currentEngine = textInferenceEngine
+            textInferenceEngine = null
+            loadedModelId = null
+            currentEngine
+        }
+        runCatching { engineToClose?.unload() }
     }
 
     private fun showOptionsBottomSheet() {
@@ -2015,9 +2110,18 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("بحث") { _, _ ->
                 val query = input.text.toString().trim()
                 if (query.isNotEmpty()) {
-                    openMapIntent(query)
+                    showMapConfirmationDialog(query)
                 }
             }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun showMapConfirmationDialog(query: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("فتح الخريطة؟")
+            .setMessage("سيتم فتح تطبيق الخرائط للبحث عن:\n$query")
+            .setPositiveButton("فتح الخريطة") { _, _ -> openMapIntent(query) }
             .setNegativeButton("إلغاء", null)
             .show()
     }
@@ -2092,7 +2196,7 @@ class MainActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("الأماكن المحفوظة")
             .setItems(items) { _, which ->
-                openMapIntent(places[which].query)
+                showMapConfirmationDialog(places[which].query)
             }
             .setNegativeButton("إلغاء", null)
             .show()
@@ -2105,7 +2209,7 @@ class MainActivity : AppCompatActivity() {
         try {
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "لا يوجد تطبيق خرائط متاح.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, NabdErrorMessages.mapAppMissing(), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2117,7 +2221,7 @@ class MainActivity : AppCompatActivity() {
         try {
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "لا يوجد تطبيق خرائط متاح.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, NabdErrorMessages.mapAppMissing(), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -3969,6 +4073,9 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun performCurrentDocumentSummary(): String {
         val document = getSelectedDocument() ?: return DocumentMessageFormatter.noSelectedDocumentMessage()
+        if (document.extractedText.isBlank()) {
+            return "المستند المحدد لا يحتوي على نص قابل للاستخدام."
+        }
         val excerpt = document.extractedText
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -4765,12 +4872,12 @@ class MainActivity : AppCompatActivity() {
                         "جاري التحليل..."
                     )
                 } else {
-                    setStatusError("لم يتم العثور على نص واضح.")
+                    setStatusError(NabdErrorMessages.ocrNoText())
                 }
             } catch (_: OutOfMemoryError) {
                 setStatusError(NabdErrorMessages.fileTooLarge())
             } catch (_: Exception) {
-                setStatusError(NabdErrorMessages.fileTooLarge())
+                setStatusError("تعذر قراءة الصورة المحددة.")
             } finally {
                 isProcessingFile = false
                 updateButtons()
@@ -4782,6 +4889,7 @@ class MainActivity : AppCompatActivity() {
         if (modelManager.isModelImported(ModelManager.VISION_MODEL.id)) {
             executeImageAskVisionFlow(uri)
         } else {
+            setStatusInfo(NabdErrorMessages.visionModelMissing())
             executeImageAskOcrFlow(uri)
         }
     }
@@ -4843,11 +4951,12 @@ class MainActivity : AppCompatActivity() {
                                 updateAssistantMessage(finalText, forceScroll = true, preserveMarkdown = true, renderMarkdown = true)
                                 setStatusSuccess("تم التحليل بنموذج الرؤية.")
                             } catch (e: Exception) {
-                                e.printStackTrace()
                                 setStatusError("تم استخدام OCR بدل نموذج الرؤية.")
                                 withContext(Dispatchers.Main) {
-                                    chatMessages.removeLast()
-                                    chatMessages.removeLast()
+                                    if (chatMessages.size >= 2) {
+                                        chatMessages.removeLast()
+                                        chatMessages.removeLast()
+                                    }
                                     chatAdapter.submitMessages(chatMessages.toList())
                                     executeImageAskOcrFlow(uri)
                                 }
@@ -4921,17 +5030,17 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton("إلغاء", null)
                         .show()
                 } else {
-                setStatusError(NabdErrorMessages.visionModelMissing())
+                    setStatusError(NabdErrorMessages.ocrNoText())
                     MaterialAlertDialogBuilder(this@MainActivity)
                         .setTitle("تنبيه")
-                        .setMessage(NabdErrorMessages.visionModelMissing())
+                        .setMessage(NabdErrorMessages.ocrNoText())
                         .setPositiveButton("حسناً", null)
                         .show()
                 }
             } catch (_: OutOfMemoryError) {
                 setStatusError(NabdErrorMessages.fileTooLarge())
             } catch (_: Exception) {
-                setStatusError(NabdErrorMessages.fileTooLarge())
+                setStatusError("تعذر قراءة الصورة المحددة.")
             } finally {
                 isProcessingFile = false
                 updateButtons()
@@ -5130,6 +5239,22 @@ class MainActivity : AppCompatActivity() {
         private const val LOCAL_MODEL_TEST_MAX_OUTPUT_CHARS = 240
         private const val LOCAL_MODEL_SHORT_TEST_PROMPT =
             "اكتب جملة عربية قصيرة جدًا من 4 إلى 6 كلمات فقط."
+        private val DOCUMENT_CONTEXT_QUERY_KEYWORDS = listOf(
+            "المستند",
+            "مستند",
+            "الملف",
+            "ملف",
+            "الوثيقة",
+            "وثيقة",
+            "pdf",
+            "بي دي اف",
+            "في المستند",
+            "داخل المستند",
+            "من المستند",
+            "في الملف",
+            "داخل الملف",
+            "من الملف"
+        )
         private const val LOCAL_MODEL_SPEED_TEST_PROMPT =
             "اكتب قائمة من 1 إلى 10 بالأرقام فقط في سطر واحد."
         private val SEMANTIC_FALLBACK_GENERATION_STATUS =

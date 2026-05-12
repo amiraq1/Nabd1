@@ -28,5 +28,8 @@ object DocumentMessageFormatter {
 
     fun documentAnswerPrefix(): String = "إجابة من المستند:"
 
+    fun insufficientDocumentAnswerMessage(): String =
+        "لم أجد جوابًا كافيًا داخل المستند المحدد."
+
     fun sourcesHeader(): String = "المصادر المستخدمة"
 }
