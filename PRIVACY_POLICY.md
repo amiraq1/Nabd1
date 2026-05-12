@@ -66,7 +66,18 @@
 - استخدام تطبيق الخرائط الخارجي يخضع لسياسة الخصوصية الخاصة بذلك التطبيق.
 - الأماكن المحفوظة داخل نبض يتم تخزينها محليًا على الجهاز، ويمكن حذفها من داخل التطبيق عند توفر خيار الحذف.
 
-## 8) حذف البيانات
+## 8) ذاكرة نبض
+
+- ذاكرة نبض اختيارية.
+- تُحفظ محليًا على جهاز المستخدم فقط.
+- لا يتم رفع الذاكرة إلى أي خادم خارجي.
+- لا يحفظ نبض كل المحادثات كذاكرة دائمة.
+- يتم الحفظ فقط عندما يطلب المستخدم ذلك صراحة.
+- يمكن للمستخدم عرض الذاكرة أو تعطيلها أو حذفها من داخل التطبيق.
+- لا يُنصح بحفظ كلمات المرور أو الأرقام السرية أو المعلومات المالية.
+- التطبيق يحاول منع حفظ بعض المعلومات الحساسة تلقائيًا، لكن المستخدم مسؤول عن عدم إدخال معلومات حساسة للحفظ.
+
+## 9) حذف البيانات
 
 يمكنك حذف بياناتك من داخل التطبيق، بما في ذلك:
 
@@ -79,12 +90,12 @@
 
 كما أن إزالة تثبيت التطبيق تؤدي عادةً إلى حذف بياناته الخاصة من الجهاز بحسب سلوك نظام Android وإعدادات الجهاز.
 
-## 9) القيود والتنبيه
+## 10) القيود والتنبيه
 
 - نبض حاليًا نسخة تجريبية (Beta) وقد تحتوي على أخطاء.
 - يُنصح بعدم إدخال أو استيراد ملفات حساسة جدًا إلا بعد فهمك لطريقة التخزين المحلي على جهازك.
 
-## 10) التواصل والدعم
+## 11) التواصل والدعم
 
 للتبليغ عن مشكلة أو طلب تحسين:
 
@@ -95,4 +106,4 @@ https://github.com/amiraq1/Nabd1/issues
 ## English (Short Version)
 
 Nabd is a local AI assistant for Android. Chat data, selected files (PDF/images), OCR text, local documents, and imported model files are processed and stored locally on the device. The app does not require a cloud account and does not intentionally upload chats/documents/OCR text to external servers. No ads tracking and no analytics are used in the app. Users can delete chats, documents, models, embedding model, and semantic indexes from app settings. The Map Tool uses external map apps via Intent and does not request location/GPS permission; user-entered queries/routes are only sent to the external app after user confirmation.
-ent and does not request location/GPS permission; user-entered queries/routes are only sent to the external app after user confirmation.
+Nabd Memory is optional and local-only. It stores only information the user explicitly asks the app to remember. Users can view, disable, or clear memory from settings.
