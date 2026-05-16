@@ -7,7 +7,6 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
-import android.content.pm.PackageManager
 
 class PhoneToolManager(private val context: Context) {
 
@@ -25,9 +24,8 @@ class PhoneToolManager(private val context: Context) {
     }
 
     fun getDeviceInfo(): PhoneToolResult {
+        // Sanitized: Only show Android version and SDK level to prevent fingerprinting
         val content = StringBuilder()
-            .append("المصنع: ${Build.MANUFACTURER}\n")
-            .append("الموديل: ${Build.MODEL}\n")
             .append("إصدار أندرويد: ${Build.VERSION.RELEASE}\n")
             .append("مستوى SDK: ${Build.VERSION.SDK_INT}")
             .toString()
@@ -46,12 +44,5 @@ class PhoneToolManager(private val context: Context) {
         
         val content = "إجمالي التخزين: $totalSpace جيجابايت\nالمساحة المتوفرة: $freeSpace جيجابايت"
         return PhoneToolResult("التخزين", content)
-    }
-
-    fun getInstalledAppsSummary(): PhoneToolResult {
-        val pm = context.packageManager
-        val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        val content = "عدد التطبيقات المثبتة: ${apps.size}"
-        return PhoneToolResult("التطبيقات المثبتة", content)
     }
 }

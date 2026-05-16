@@ -2,6 +2,7 @@ package com.example.localqwen.model
 
 import android.content.Context
 import java.io.File
+import java.security.MessageDigest
 
 class ModelManager(private val context: Context) {
     data class SupportedModel(
@@ -110,5 +111,25 @@ class ModelManager(private val context: Context) {
     fun deleteModel(modelId: String): Boolean {
         val model = getModelById(modelId) ?: return false
         return deleteModel(model)
+    }
+
+    /**
+     * Calculates the SHA-256 fingerprint of an imported model file.
+     * Used to verify model integrity and prevent tampering.
+     */
+    fun verifyModelIntegrity(file: File): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            "error_calculating_hash"
+        }
     }
 }

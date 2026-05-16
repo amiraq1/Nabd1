@@ -39,10 +39,11 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import com.example.localqwen.data.SecurePreferences
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val preferences = application.getSharedPreferences("nabd_prefs", 0)
+    private val preferences = SecurePreferences.get(application)
     private val db = NabdDatabase.getInstance(application)
     val chatSessionStore = ChatSessionStore(preferences, db)
     val documentStore = DocumentStore(preferences, db)

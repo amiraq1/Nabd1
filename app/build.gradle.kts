@@ -43,10 +43,15 @@ android {
 }
 
 dependencies {
+    // Security
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+    implementation("androidx.sqlite:sqlite:2.4.0")
+
     // AI / ML
-    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mediapipe:tasks-text:latest.release")
+    implementation("com.google.mediapipe:tasks-text:0.10.14")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
 
     // AndroidX Lifecycle (ViewModel + LiveData)

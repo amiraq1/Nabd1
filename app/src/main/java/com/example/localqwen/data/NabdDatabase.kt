@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import net.sqlcipher.database.SupportFactory
 
 @Database(
     entities = [ChatSessionEntity::class, LocalDocumentEntity::class],
@@ -19,6 +20,8 @@ abstract class NabdDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: NabdDatabase? = null
+
+        private const val DB_PASSPHRASE_KEY = "db_passphrase_secure"
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -51,7 +54,7 @@ abstract class NabdDatabase : RoomDatabase() {
                 db.execSQL("DROP TABLE chat_sessions")
                 db.execSQL("ALTER TABLE chat_sessions_new RENAME TO chat_sessions")
 
-                // 2. Rebuild local_documents table (just in case it has similar nullability issues)
+                // 2. Rebuild local_documents table
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `local_documents_new` (
                         `id` TEXT NOT NULL, 
@@ -76,14 +79,26 @@ abstract class NabdDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): NabdDatabase {
             return INSTANCE ?: synchronized(this) {
+                val passphrase = getOrCreatePassphrase(context)
+                val factory = SupportFactory(passphrase)
+
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     NabdDatabase::class.java,
                     "nabd_database"
                 )
+                .openHelperFactory(factory)
                 .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigration()
                 .build().also { INSTANCE = it }
             }
+        }
+
+        private fun getOrCreatePassphrase(context: Context): ByteArray {
+            // Using a temporary secure key string as requested for this phase
+            // Will be bridged to KeyStore in later updates
+            val passphraseStr = "NabdSecurePassphraseKeys2026"
+            return passphraseStr.toByteArray()
         }
     }
 }

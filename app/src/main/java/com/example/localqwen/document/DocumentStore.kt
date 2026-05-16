@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.localqwen.data.LocalDocumentEntity
 import com.example.localqwen.data.NabdDatabase
+import com.example.localqwen.data.SecurePreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -12,7 +13,7 @@ class DocumentStore(
     private val db: NabdDatabase
 ) {
     constructor(context: Context) : this(
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE),
+        SecurePreferences.get(context),
         NabdDatabase.getInstance(context)
     )
 

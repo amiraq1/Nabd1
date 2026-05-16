@@ -23,10 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.example.localqwen.data.SecurePreferences
 
 class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val preferences = application.getSharedPreferences("nabd_prefs", 0)
+    private val preferences = SecurePreferences.get(application)
     val modelManager = ModelManager(application)
     val embeddingModelManager = EmbeddingModelManager(application)
     val embeddingStore = EmbeddingStore(application)
