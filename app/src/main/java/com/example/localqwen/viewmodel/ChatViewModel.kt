@@ -1,11 +1,20 @@
 package com.example.localqwen.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
+import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Observer
 import androidx.lifecycle.viewModelScope
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.ChatSession
 import com.example.localqwen.chat.ChatSessionStore
@@ -21,6 +30,7 @@ import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.rag.TextChunker
+import com.example.localqwen.work.PdfProcessingWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -45,11 +56,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPreparingContext = MutableLiveData(false)
     val isPreparingContext: LiveData<Boolean> = _isPreparingContext
 
+    private val _isProcessingDocument = MutableLiveData(false)
+    val isProcessingDocument: LiveData<Boolean> = _isProcessingDocument
+
     private val _statusEvent = MutableLiveData<StatusEvent>()
     val statusEvent: LiveData<StatusEvent> = _statusEvent
 
     private val _streamingUpdate = MutableLiveData<StreamingUpdate?>()
     val streamingUpdate: LiveData<StreamingUpdate?> = _streamingUpdate
+
+    private val _currentTps = MutableLiveData<Float>(0f)
+    val currentTps: LiveData<Float> = _currentTps
 
     private val _scrollToBottom = MutableLiveData<Boolean>()
     val scrollToBottom: LiveData<Boolean> = _scrollToBottom
@@ -101,6 +118,110 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             chatSessionStore.setActiveSessionId(id)
             loadActiveSession()
+        }
+    }
+
+    fun addSystemMessage(text: String) {
+        addChatMessage(ChatMessage(role = Role.SYSTEM, text = text))
+        saveActiveSessionDebounced()
+    }
+
+    fun importDocument(uri: Uri) {
+        val context = getApplication<Application>()
+        val fileName = getFileName(context, uri) ?: "مستند غير معروف"
+        
+        _isProcessingDocument.value = true
+        _statusEvent.value = StatusEvent.Info("جاري معالجة المستند...")
+
+        viewModelScope.launch {
+            try {
+                if (fileName.endsWith(".pdf", ignoreCase = true)) {
+                    enqueuePdfProcessing(uri, fileName)
+                } else {
+                    val text = withContext(Dispatchers.IO) {
+                        readTextFromUri(context, uri)
+                    }
+                    if (text.isNotBlank()) {
+                        val document = LocalDocument(
+                            id = UUID.randomUUID().toString(),
+                            title = fileName,
+                            type = "txt",
+                            extractedText = text,
+                            createdAt = System.currentTimeMillis()
+                        )
+                        documentStore.saveDocument(document)
+                        documentStore.setSelectedDocumentId(document.id)
+                        _statusEvent.value = StatusEvent.Success("تمت إضافة المستند: $fileName")
+                    } else {
+                        _statusEvent.value = StatusEvent.Error("المستند فارغ")
+                    }
+                    _isProcessingDocument.value = false
+                }
+            } catch (e: Exception) {
+                _statusEvent.value = StatusEvent.Error("فشل معالجة المستند")
+                _isProcessingDocument.value = false
+            }
+        }
+    }
+
+    private fun enqueuePdfProcessing(uri: Uri, title: String) {
+        val context = getApplication<Application>()
+        val data = workDataOf(
+            PdfProcessingWorker.KEY_PDF_URI to uri.toString(),
+            PdfProcessingWorker.KEY_PDF_TITLE to title
+        )
+        val request = OneTimeWorkRequestBuilder<PdfProcessingWorker>()
+            .setInputData(data)
+            .build()
+
+        WorkManager.getInstance(context).enqueue(request)
+        
+        val workInfoLiveData = WorkManager.getInstance(context).getWorkInfoByIdLiveData(request.id)
+        val observer = object : Observer<WorkInfo?> {
+            override fun onChanged(value: WorkInfo?) {
+                if (value == null) return
+                if (value.state.isFinished) {
+                    _isProcessingDocument.value = false
+                    if (value.state == WorkInfo.State.SUCCEEDED) {
+                        val docId = value.outputData.getString(PdfProcessingWorker.KEY_DOCUMENT_ID)
+                        docId?.let { documentStore.setSelectedDocumentId(it) }
+                        _statusEvent.value = StatusEvent.Success("تمت معالجة PDF بنجاح")
+                    } else {
+                        val error = value.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE) ?: "خطأ غير معروف"
+                        _statusEvent.value = StatusEvent.Error(error)
+                    }
+                    workInfoLiveData.removeObserver(this)
+                }
+            }
+        }
+        workInfoLiveData.observeForever(observer)
+    }
+
+    private fun getFileName(context: Context, uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) result = cursor.getString(index)
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) result = result?.substring(cut + 1)
+        }
+        return result
+    }
+
+    private fun readTextFromUri(context: Context, uri: Uri): String {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                input.bufferedReader().use { it.readText() }
+            } ?: ""
+        } catch (_: Exception) {
+            ""
         }
     }
 
@@ -188,32 +309,61 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _statusEvent.value = StatusEvent.Info(status)
         _streamingUpdate.value = StreamingUpdate(index = activeAssistantMessageIndex, isStreaming = true)
 
+        Log.d("NabdInference", "Starting generation with prompt length: ${prompt.length}")
+        
         try {
             val output = StringBuilder()
             var lastRenderedLength = 0
             var firstChunkCaptured = false
+            var tokenCount = 0
 
             withContext(Dispatchers.IO) {
                 engine.generate(prompt).collect { chunk ->
-                    if (!firstChunkCaptured) {
-                        firstChunkCaptured = true
-                        lastFirstTokenLatencyMs = SystemClock.elapsedRealtime() - generationStartedAt
-                    }
-                    output.append(chunk)
-                    val shouldRefresh = output.length <= 256 || output.length - lastRenderedLength >= STREAM_UPDATE_MIN_CHARS
-                    if (shouldRefresh) {
-                        val snapshot = output.toString()
-                        lastRenderedLength = output.length
-                        withContext(Dispatchers.Main) {
-                            val cleaned = cleanForDisplay(snapshot, preserveMarkdown = true)
-                            updateAssistantMessageInternal(cleaned, renderMarkdown = false)
+                    if (chunk.isNotEmpty()) {
+                        tokenCount++
+                        if (!firstChunkCaptured) {
+                            firstChunkCaptured = true
+                            lastFirstTokenLatencyMs = SystemClock.elapsedRealtime() - generationStartedAt
+                            Log.d("NabdInference", "First chunk received in ${lastFirstTokenLatencyMs}ms")
+                        }
+                        
+                        val elapsed = (SystemClock.elapsedRealtime() - generationStartedAt) / 1000f
+                        if (elapsed > 0) {
+                            withContext(Dispatchers.Main) {
+                                _currentTps.value = tokenCount / elapsed
+                            }
+                        }
+
+                        output.append(chunk)
+                        Log.v("NabdInference", "Chunk: $chunk")
+                        
+                        val shouldRefresh = output.length <= 128 || output.length - lastRenderedLength >= STREAM_UPDATE_MIN_CHARS
+                        if (shouldRefresh) {
+                            val snapshot = output.toString()
+                            lastRenderedLength = output.length
+                            withContext(Dispatchers.Main) {
+                                val cleaned = cleanForDisplay(snapshot, preserveMarkdown = true)
+                                if (cleaned.isNotEmpty()) {
+                                    updateAssistantMessageInternal(cleaned, renderMarkdown = false)
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            val finalText = cleanForDisplay(output.toString(), preserveMarkdown = true).ifBlank { "(فارغ)" }
-            updateAssistantMessageInternal(finalText, renderMarkdown = true)
+            val finalRaw = output.toString()
+            Log.d("NabdInference", "Generation finished. Total length: ${finalRaw.length}")
+            
+            val finalText = cleanForDisplay(finalRaw, preserveMarkdown = true).ifBlank { 
+                if (finalRaw.isNotBlank()) finalRaw.trim() else "(لم يتم توليد رد)"
+            }
+            
+            withContext(Dispatchers.Main) {
+                updateAssistantMessageInternal(finalText, renderMarkdown = true)
+                _currentTps.value = 0f
+            }
+            
             lastAssistantResponse = finalText
             lastResponseCharCount = finalText.length
             lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
@@ -221,11 +371,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
             _statusEvent.value = StatusEvent.Success("جاهز")
         } catch (cancelled: CancellationException) {
+            Log.i("NabdInference", "Generation cancelled by user")
+            _currentTps.postValue(0f)
             throw cancelled
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("NabdInference", "Generation failed", e)
+            _currentTps.postValue(0f)
             lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
-            _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء توليد الرد.")
+            _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء توليد الرد: ${e.message}")
         } finally {
             _isGenerating.value = false
             _streamingUpdate.value = null

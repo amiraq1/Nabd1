@@ -1,50 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="52dp"
-    android:layout_marginBottom="4dp"
-    android:background="@drawable/bg_option_row"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp">
+    android:padding="16dp">
 
     <ImageView
         android:id="@+id/ivOptionIcon"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:alpha="0.8" />
+        android:layout_marginEnd="16dp" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/tvOptionTitle"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/nabd_on_surface"
-            android:textSize="14sp"
-            android:textStyle="normal" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/tvOptionSubtitle"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:textColor="@color/nabd_text_secondary"
-            android:textSize="11sp"
-            android:visibility="gone" />
+            android:textSize="14sp" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/ivOptionChevron"
-        android:layout_width="16dp"
-        android:layout_height="16dp"
-        android:alpha="0.3"
-        android:src="@drawable/ic_chevron_left" />
 </LinearLayout>

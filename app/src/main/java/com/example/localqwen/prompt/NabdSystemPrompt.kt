@@ -24,21 +24,32 @@ object NabdSystemPrompt {
         """.trimIndent()
     }
 
+    fun wrapInChatTemplate(systemPrompt: String, userMessage: String): String {
+        return """
+            <start_of_turn>user
+            $systemPrompt
+
+            $userMessage<end_of_turn>
+            <start_of_turn>model
+            
+        """.trimIndent()
+    }
+
     fun normalChatPrompt(userInput: String, memoryContext: String = ""): String {
         val memorySection = if (memoryContext.isBlank()) {
             ""
         } else {
-            "\n\n$memoryContext"
+            "\n\nسياق الذاكرة:\n$memoryContext"
         }
-        return """
+        
+        val system = """
             ${baseIdentityPrompt()}
             أجب مباشرة على رسالة المستخدم.
             لا تطل إلا إذا طلب المستخدم التفصيل.
 $memorySection
-
-            رسالة المستخدم:
-            $userInput
         """.trimIndent()
+        
+        return wrapInChatTemplate(system, userInput)
     }
 
     fun documentPrompt(
@@ -46,7 +57,7 @@ $memorySection
         contextChunks: String,
         answerLengthInstruction: String
     ): String {
-        return """
+        val system = """
             ${baseIdentityPrompt()}
             تعليمات مهمة:
             - اعتمد "فقط" على سياق المستند المرفق للإجابة.
@@ -58,14 +69,13 @@ $memorySection
 
             سياق المستند المتوفر:
             $contextChunks
-
-            سؤال المستخدم:
-            $userInput
         """.trimIndent()
+        
+        return wrapInChatTemplate(system, userInput)
     }
 
     fun imageAnalysisPrompt(extractedText: String): String {
-        return """
+        val system = """
             ${baseIdentityPrompt()}
             حلّل النص المستخرج من الصورة باختصار ووضوح.
             لا تستخدم Markdown.
@@ -74,14 +84,13 @@ $memorySection
             استخدم قوائم رقمية بسيطة فقط إذا لزم.
             إذا كان النص مشوشًا أو غير مفهوم، قل إن OCR غير واضح واقترح إعادة تصوير الصورة بإضاءة أفضل.
             لا تطل في التحليل.
-
-            النص المستخرج:
-            $extractedText
         """.trimIndent()
+        
+        return wrapInChatTemplate(system, "النص المستخرج من الصورة:\n$extractedText")
     }
 
     fun askImagePrompt(question: String, extractedText: String): String {
-        return """
+        val system = """
             أنت "نبض"، مساعد ذكاء اصطناعي محلي.
             أجب بالعربية بوضوح واختصار.
             هذه نتيجة OCR من صورة، وليست وصفًا بصريًا كاملًا.
@@ -89,12 +98,16 @@ $memorySection
             إذا كان النص غير كافٍ، قل بوضوح:
             "النص المستخرج من الصورة لا يحتوي على إجابة كافية."
             لا تستخدم Markdown مبالغًا فيه.
-
+        """.trimIndent()
+        
+        val user = """
             النص المستخرج:
             $extractedText
 
             سؤال المستخدم:
             $question
         """.trimIndent()
+        
+        return wrapInChatTemplate(system, user)
     }
 }
