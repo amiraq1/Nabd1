@@ -152,14 +152,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         documentStore.saveDocument(document)
                         documentStore.setSelectedDocumentId(document.id)
-                        _statusEvent.value = StatusEvent.Success("تمت إضافة المستند: $fileName")
+                        _statusEvent.value = StatusEvent.Success("تمت إضافة المستند بنجاح: $fileName")
                     } else {
-                        _statusEvent.value = StatusEvent.Error("المستند فارغ")
+                        _statusEvent.value = StatusEvent.Error("عذراً، يبدو أن المستند فارغ ولا يحتوي على نص.")
                     }
                     _isProcessingDocument.value = false
                 }
             } catch (e: Exception) {
-                _statusEvent.value = StatusEvent.Error("فشل معالجة المستند")
+                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء محاولة قراءة المستند. تأكد من أن الملف سليم.")
                 _isProcessingDocument.value = false
             }
         }
@@ -186,10 +186,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (value.state == WorkInfo.State.SUCCEEDED) {
                         val docId = value.outputData.getString(PdfProcessingWorker.KEY_DOCUMENT_ID)
                         docId?.let { documentStore.setSelectedDocumentId(it) }
-                        _statusEvent.value = StatusEvent.Success("تمت معالجة PDF بنجاح")
+                        _statusEvent.value = StatusEvent.Success("تم تجهيز مستند PDF بنجاح، يمكنك الآن سؤالي عنه!")
                     } else {
                         val error = value.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE) ?: "خطأ غير معروف"
-                        _statusEvent.value = StatusEvent.Error(error)
+                        _statusEvent.value = StatusEvent.Error("عذراً، لم أتمكن من معالجة ملف PDF: $error")
                     }
                     workInfoLiveData.removeObserver(this)
                 }

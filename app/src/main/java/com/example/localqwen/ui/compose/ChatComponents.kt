@@ -44,22 +44,37 @@ fun MessageBubble(message: ChatMessage) {
     val isSystem = message.role == Role.SYSTEM
 
     if (isSystem) {
+        val isError = message.text.startsWith("خطأ") || message.text.contains("فشل") || message.text.contains("عذراً")
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 8.dp, horizontal = 16.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = message.text,
-                fontSize = 12.sp,
-                color = Color.Gray,
-                style = TextStyle(
-                    fontWeight = FontWeight.Medium,
-                    textDirection = TextDirection.Rtl,
-                    textAlign = TextAlign.Center
-                )
-            )
+            Surface(
+                color = if (isError) Color(0xFFFFEBEE) else Color(0xFFF5F5F5),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    if (isError) {
+                        Text("⚠️", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
+                    }
+                    Text(
+                        text = message.text,
+                        fontSize = 12.sp,
+                        color = if (isError) Color(0xFFD32F2F) else Color.Gray,
+                        style = TextStyle(
+                            fontWeight = FontWeight.Medium,
+                            textDirection = TextDirection.Rtl,
+                            textAlign = TextAlign.Center
+                        )
+                    )
+                }
+            }
         }
         return
     }
