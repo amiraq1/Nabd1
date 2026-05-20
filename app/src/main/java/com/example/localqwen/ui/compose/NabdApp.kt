@@ -4,8 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Speed
@@ -64,6 +66,12 @@ fun NabdApp(
                 is com.example.localqwen.viewmodel.ModelState.NotImported -> "غير مستورد"
                 is com.example.localqwen.viewmodel.ModelState.Error -> state.message
             }
+        }
+    }
+
+    LaunchedEffect(currentTps) {
+        if (currentTps > 0) {
+            modelViewModel.addTpsRecord(currentTps)
         }
     }
 
@@ -163,6 +171,7 @@ fun NabdApp(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp)
                     .padding(bottom = 32.dp)
             ) {
@@ -193,6 +202,36 @@ fun NabdApp(
                         color = if (performanceState.ramUsagePercent > 0.8f) Color.Red else Color(0xFFFF5A5F),
                         trackColor = Color(0xFFEEEEEE)
                     )
+
+                    if (performanceState.ramHistory.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        PerformanceChart(
+                            dataPoints = performanceState.ramHistory.map { it * 100f },
+                            label = "استهلاك RAM %",
+                            lineColor = android.graphics.Color.BLUE
+                        )
+                    }
+                }
+
+                // TPS Monitor
+                Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                    Text("سرعة التوليد (Tokens/Sec)", fontSize = 14.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (performanceState.tpsHistory.isNotEmpty()) {
+                        PerformanceChart(
+                            dataPoints = performanceState.tpsHistory,
+                            label = "t/s",
+                            lineColor = android.graphics.Color.MAGENTA
+                        )
+                    } else {
+                        Text(
+                            "لا توجد بيانات سرعة حالياً. ابدأ محادثة لقياس الأداء.",
+                            fontSize = 12.sp,
+                            color = Color.LightGray,
+                            modifier = Modifier.padding(vertical = 16.dp).fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
 
                 // Benchmark Button

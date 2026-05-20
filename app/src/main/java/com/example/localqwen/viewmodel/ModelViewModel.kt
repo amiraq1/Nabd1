@@ -79,9 +79,20 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         performanceMonitorJob = viewModelScope.launch {
             while (true) {
                 val ram = getRamUsage()
-                _performanceState.value = _performanceState.value?.copy(ramUsagePercent = ram)
+                _performanceState.value = _performanceState.value?.let { current ->
+                    val newHistory = (current.ramHistory + ram).takeLast(20)
+                    current.copy(ramUsagePercent = ram, ramHistory = newHistory)
+                }
                 kotlinx.coroutines.delay(2000)
             }
+        }
+    }
+
+    fun addTpsRecord(tps: Float) {
+        if (tps <= 0) return
+        _performanceState.value = _performanceState.value?.let { current ->
+            val newHistory = (current.tpsHistory + tps).takeLast(20)
+            current.copy(lastTps = tps, tpsHistory = newHistory)
         }
     }
 
@@ -432,7 +443,9 @@ data class PerformanceState(
     val ramUsagePercent: Float = 0f,
     val isBenchmarking: Boolean = false,
     val benchmarkResult: String? = null,
-    val lastTps: Float = 0f
+    val lastTps: Float = 0f,
+    val tpsHistory: List<Float> = emptyList(),
+    val ramHistory: List<Float> = emptyList()
 )
 
 sealed class ModelState {
