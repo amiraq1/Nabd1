@@ -55,6 +55,9 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGenerating = MutableLiveData<Boolean>(false)
     val isGenerating: LiveData<Boolean> = _isGenerating
 
+    private val _responseMode = MutableLiveData<String>(preferences.getString(KEY_RESPONSE_MODE, "balanced") ?: "balanced")
+    val responseMode: LiveData<String> = _responseMode
+
     var textInferenceEngine: NabdInferenceEngine? = null
         private set
 
@@ -156,6 +159,11 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         _selectedModel.value = model
         preferences.edit().putString(KEY_SELECTED_MODEL_ID, model.id).apply()
         refreshModelState()
+    }
+
+    fun setResponseMode(mode: String) {
+        _responseMode.value = mode
+        preferences.edit().putString(KEY_RESPONSE_MODE, mode).apply()
     }
 
     fun importModel(model: SupportedModel, uri: android.net.Uri) {
@@ -436,6 +444,7 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
         private const val KEY_EMBEDDING_BACKEND = "embedding_backend"
+        private const val KEY_RESPONSE_MODE = "response_mode"
     }
 }
 

@@ -13,4 +13,6 @@ interface NabdInferenceEngine {
     fun generate(prompt: String): Flow<String>
     
     fun generateVision(imagePath: String, prompt: String): Flow<String>
+
+    fun resetConversation() {}
 }

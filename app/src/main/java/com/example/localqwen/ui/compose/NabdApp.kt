@@ -92,6 +92,8 @@ fun NabdApp(
         }
     }
 
+    val responseMode by modelViewModel.responseMode.observeAsState("balanced")
+
     val handleSendMessage: (String) -> Unit = { text ->
         if (text.isNotBlank()) {
             val memoryResult = memoryViewModel.handleMemoryCommand(text)
@@ -122,7 +124,8 @@ fun NabdApp(
                     semanticRetriever = modelViewModel.semanticRetriever,
                     ragMode = modelViewModel.currentRagMode(),
                     documentAnswerLengthInstruction = chatViewModel.currentDocumentAnswerLength(),
-                    memoryContext = memoryViewModel.buildMemoryContextForPrompt()
+                    memoryContext = memoryViewModel.buildMemoryContextForPrompt(),
+                    responseMode = responseMode
                 )
             }
         }
@@ -233,6 +236,35 @@ fun NabdApp(
                             modifier = Modifier.padding(vertical = 16.dp).fillMaxWidth(),
                             textAlign = TextAlign.Center
                         )
+                    }
+                }
+
+                // Response Mode Selector
+                Text(
+                    "نمط الرد",
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val modes = listOf("fast" to "سريع", "balanced" to "متوازن", "detailed" to "مفصل")
+                    modes.forEach { (mode, label) ->
+                        val isSelected = responseMode == mode
+                        Button(
+                            onClick = { modelViewModel.setResponseMode(mode) },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSelected) Color(0xFFFF5A5F) else Color(0xFFEEEEEE),
+                                contentColor = if (isSelected) Color.White else Color.Black
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) {
+                            Text(label, fontSize = 12.sp)
+                        }
                     }
                 }
 

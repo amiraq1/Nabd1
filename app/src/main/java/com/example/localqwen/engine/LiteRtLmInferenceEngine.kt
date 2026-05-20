@@ -54,6 +54,15 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
         return engine != null && conversation != null
     }
 
+    override fun resetConversation() {
+        val currentEngine = engine ?: return
+        val refs = LiteRtRefs()
+        try {
+            (conversation as? AutoCloseable)?.close()
+        } catch (_: Exception) {}
+        conversation = refs.createConversation(currentEngine)
+    }
+
     override fun generate(prompt: String): Flow<String> {
         val refs = LiteRtRefs()
         val currentConversation = conversation ?: throw IllegalStateException("Engine not initialized")

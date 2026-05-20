@@ -226,6 +226,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildChatHistoryPrompt(limit: Int = 6): String {
+        // Exclude the current user message and the empty assistant message just added
+        val history = chatMessages.dropLast(2).takeLast(limit)
+        return history.joinToString("\n") { msg ->
+            val role = if (msg.role == Role.USER) "أنت" else "نبض"
+            val text = if (msg.text.length > 200) msg.text.take(200) + "..." else msg.text
+            "$role: $text"
+        }
+    }
+
     fun sendMessage(
         input: String,
         engine: NabdInferenceEngine?,
@@ -234,7 +244,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         semanticRetriever: SemanticRetriever?,
         ragMode: RagMode,
         documentAnswerLengthInstruction: String,
-        memoryContext: String = ""
+        memoryContext: String = "",
+        responseMode: String = "balanced"
     ) {
         if (input.isBlank()) return
         if (_isGenerating.value == true) return
@@ -271,17 +282,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 DocumentContextResult(context = null, generationStatus = "جاري التوليد...")
             }
 
+            val historyContext = buildChatHistoryPrompt(limit = 6)
+
             val prompt = if (contextResult.context != null) {
                 NabdSystemPrompt.documentPrompt(
                     userInput = input,
                     contextChunks = contextResult.context,
-                    answerLengthInstruction = documentAnswerLengthInstruction
+                    answerLengthInstruction = documentAnswerLengthInstruction,
+                    historyContext = historyContext,
+                    responseMode = responseMode
                 )
             } else {
-                NabdSystemPrompt.normalChatPrompt(input, memoryContext)
+                NabdSystemPrompt.normalChatPrompt(
+                    userInput = input, 
+                    historyContext = historyContext, 
+                    memoryContext = memoryContext,
+                    responseMode = responseMode
+                )
             }
 
             _isPreparingContext.value = false
+            
+            // Reset conversation internal state to prevent context bloat
+            try { engine?.resetConversation() } catch (_: Exception) {}
 
             startGeneration(
                 engine = engine,
@@ -671,7 +694,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val STREAM_UPDATE_MIN_CHARS = 24
         private const val DOCUMENT_TEXT_LIMIT = 100_000
-        private const val DOCUMENT_CHUNK_SIZE = 1200
+        private const val DOCUMENT_CHUNK_SIZE = 800
         private const val MAX_RETRIEVED_CHUNKS = 3
     }
 }

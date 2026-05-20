@@ -4,13 +4,19 @@ import com.example.localqwen.document.DocumentMessageFormatter
 
 object NabdSystemPrompt {
 
-    fun baseIdentityPrompt(): String {
+    fun baseIdentityPrompt(responseMode: String = "balanced"): String {
+        val modeInstruction = when(responseMode) {
+            "fast" -> "أجب باختصار شديد ومباشرة (كلمات قليلة). قلل التنسيق والترحيب. ركز على السرعة."
+            "detailed" -> "أجب بالتفصيل ووضوح. اشرح الأسباب وقدم أمثلة شاملة."
+            else -> "اجعل إجاباتك واضحة ومختصرة ومنظمة."
+        }
+        
         return """
             أنت "نبض"، مساعد ذكاء اصطناعي عربي محلي يعمل داخل جهاز المستخدم.
             تم إعدادك وتطويرك بواسطة عمار محمد التميمي.
             لا تدّعي أنك Claude أو ChatGPT أو Gemini.
             أجب بالعربية افتراضيًا.
-            اجعل إجاباتك واضحة ومختصرة ومنظمة.
+            $modeInstruction
             استخدم تنسيقًا بسيطًا عند الحاجة مثل القوائم والعناوين القصيرة، ولا تفرط في التنسيق.
             لا تخترع معلومات.
             إذا لم تكن متأكدًا، قل ذلك بوضوح.
@@ -24,18 +30,24 @@ object NabdSystemPrompt {
         """.trimIndent()
     }
 
-    fun wrapInChatTemplate(systemPrompt: String, userMessage: String): String {
+    fun wrapInChatTemplate(systemPrompt: String, userMessage: String, historyContext: String = ""): String {
+        val historySection = if (historyContext.isNotBlank()) "تاريخ المحادثة الأخير:\n$historyContext\n\n" else ""
         return """
             <start_of_turn>user
             $systemPrompt
 
-            $userMessage<end_of_turn>
+            ${historySection}رسالة المستخدم الحالية: $userMessage<end_of_turn>
             <start_of_turn>model
             
         """.trimIndent()
     }
 
-    fun normalChatPrompt(userInput: String, memoryContext: String = ""): String {
+    fun normalChatPrompt(
+        userInput: String, 
+        historyContext: String = "", 
+        memoryContext: String = "",
+        responseMode: String = "balanced"
+    ): String {
         val memorySection = if (memoryContext.isBlank()) {
             ""
         } else {
@@ -43,35 +55,34 @@ object NabdSystemPrompt {
         }
         
         val system = """
-            ${baseIdentityPrompt()}
+            ${baseIdentityPrompt(responseMode)}
             أجب مباشرة على رسالة المستخدم.
-            لا تطل إلا إذا طلب المستخدم التفصيل.
 $memorySection
         """.trimIndent()
         
-        return wrapInChatTemplate(system, userInput)
+        return wrapInChatTemplate(system, userInput, historyContext)
     }
 
     fun documentPrompt(
         userInput: String,
         contextChunks: String,
-        answerLengthInstruction: String
+        answerLengthInstruction: String,
+        historyContext: String = "",
+        responseMode: String = "balanced"
     ): String {
         val system = """
-            ${baseIdentityPrompt()}
-            تعليمات مهمة:
+            ${baseIdentityPrompt(responseMode)}
+            تعليمات مهمة للمستندات:
             - اعتمد "فقط" على سياق المستند المرفق للإجابة.
-            - لا تستخدم معلوماتك الخارجية أو معرفتك السابقة التي لا توجد في النص.
+            - لا تستخدم معلوماتك الخارجية.
             - إذا لم تجد الإجابة في السياق، قل بوضوح: "${DocumentMessageFormatter.insufficientDocumentAnswerMessage()}"
-            - اكتب الإجابة من المستند بدقة ووضوح.
-            - اذكر اسم المصدر المذكور في المقتطف إذا لزم الأمر.
             - $answerLengthInstruction
 
             سياق المستند المتوفر:
             $contextChunks
         """.trimIndent()
         
-        return wrapInChatTemplate(system, userInput)
+        return wrapInChatTemplate(system, userInput, historyContext)
     }
 
     fun imageAnalysisPrompt(extractedText: String): String {
