@@ -144,7 +144,7 @@ class SettingsActivity : AppCompatActivity() {
                     4 -> finishWithAction(ACTION_WHATS_NEW)
                     5 -> finishWithAction(ACTION_SEND_FEEDBACK)
                     6 -> finishWithAction(ACTION_ABOUT)
-                    7 -> {} // Open Privacy URL if exists
+                    7 -> finishWithAction(ACTION_PRIVACY_POLICY)
                     8 -> finishWithAction(ACTION_COPY_BETA_REPORT)
                 }
             }
@@ -437,6 +437,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_CLEAR_MEMORY = "clear_memory"
         const val ACTION_HELP = "help"
         const val ACTION_ABOUT = "about"
+        const val ACTION_PRIVACY_POLICY = "privacy_policy"
 
         fun createIntent(
             context: Context,

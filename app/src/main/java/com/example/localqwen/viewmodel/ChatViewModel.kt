@@ -233,7 +233,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         embeddingStore: EmbeddingStore?,
         semanticRetriever: SemanticRetriever?,
         ragMode: RagMode,
-        documentAnswerLengthInstruction: String
+        documentAnswerLengthInstruction: String,
+        memoryContext: String = ""
     ) {
         if (input.isBlank()) return
         if (_isGenerating.value == true) return
@@ -246,14 +247,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         _isPreparingContext.value = true
 
-        val selectedDocument = getSelectedDocument()
-        _statusEvent.value = if (selectedDocument != null) {
+        val hasSelectedDocument = documentStore.getSelectedDocumentId() != null
+        _statusEvent.value = if (hasSelectedDocument) {
             StatusEvent.Info("جاري تجهيز سياق المستند...")
         } else {
             StatusEvent.Info("جاري التوليد...")
         }
 
         generationJob = viewModelScope.launch {
+            val selectedDocument = getSelectedDocumentAsync()
             val contextResult = try {
                 withContext(Dispatchers.IO) {
                     buildDocumentContext(
@@ -276,7 +278,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     answerLengthInstruction = documentAnswerLengthInstruction
                 )
             } else {
-                NabdSystemPrompt.normalChatPrompt(input)
+                NabdSystemPrompt.normalChatPrompt(input, memoryContext)
             }
 
             _isPreparingContext.value = false
@@ -310,8 +312,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _statusEvent.value = StatusEvent.Info(status)
         _streamingUpdate.value = StreamingUpdate(index = activeAssistantMessageIndex, isStreaming = true)
 
-        Log.d("NabdInference", "Starting generation with prompt length: ${prompt.length}")
-        
         try {
             val output = StringBuilder()
             var lastRenderedLength = 0
@@ -325,7 +325,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         if (!firstChunkCaptured) {
                             firstChunkCaptured = true
                             lastFirstTokenLatencyMs = SystemClock.elapsedRealtime() - generationStartedAt
-                            Log.d("NabdInference", "First chunk received in ${lastFirstTokenLatencyMs}ms")
                         }
                         
                         val elapsed = (SystemClock.elapsedRealtime() - generationStartedAt) / 1000f
@@ -336,7 +335,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         output.append(chunk)
-                        Log.v("NabdInference", "Chunk: $chunk")
                         
                         val shouldRefresh = output.length <= 128 || output.length - lastRenderedLength >= STREAM_UPDATE_MIN_CHARS
                         if (shouldRefresh) {
@@ -354,7 +352,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val finalRaw = output.toString()
-            Log.d("NabdInference", "Generation finished. Total length: ${finalRaw.length}")
             
             val finalText = cleanForDisplay(finalRaw, preserveMarkdown = true).ifBlank { 
                 if (finalRaw.isNotBlank()) finalRaw.trim() else "(لم يتم توليد رد)"
@@ -438,19 +435,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun getSelectedDocument(): LocalDocument? {
-        val id = documentStore.getSelectedDocumentId() ?: return null
-        // We need a synchronous check here for the document — use cached or return null
-        // The actual document fetch should be done with suspend in buildDocumentContext
-        return null // Will be resolved in the generation coroutine
-    }
-
     suspend fun getSelectedDocumentAsync(): LocalDocument? {
         return documentStore.getDocument(documentStore.getSelectedDocumentId())
     }
 
     fun currentDocumentAnswerLength(): String {
         return preferences.getString("document_answer_length", "short") ?: "short"
+    }
+
+    fun setDocumentAnswerLength(value: String) {
+        val safeValue = when (value.lowercase()) {
+            "medium", "long" -> value.lowercase()
+            else -> "short"
+        }
+        preferences.edit().putString("document_answer_length", safeValue).apply()
+        saveActiveSessionDebounced(immediate = true)
+    }
+
+    fun clearSelectedDocument() {
+        documentStore.clearSelectedDocumentId()
+        saveActiveSessionDebounced(immediate = true)
+        _statusEvent.value = StatusEvent.Info("تم إلغاء تحديد المستند")
     }
 
     fun getCurrentMessages(): List<ChatMessage> = chatMessages.toList()

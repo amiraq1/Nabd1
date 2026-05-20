@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import net.sqlcipher.database.SupportFactory
+import android.util.Base64
+import java.security.SecureRandom
 
 @Database(
     entities = [ChatSessionEntity::class, LocalDocumentEntity::class],
@@ -89,16 +91,29 @@ abstract class NabdDatabase : RoomDatabase() {
                 )
                 .openHelperFactory(factory)
                 .addMigrations(MIGRATION_1_2)
-                .fallbackToDestructiveMigration()
                 .build().also { INSTANCE = it }
             }
         }
 
         private fun getOrCreatePassphrase(context: Context): ByteArray {
-            // Using a temporary secure key string as requested for this phase
-            // Will be bridged to KeyStore in later updates
-            val passphraseStr = "NabdSecurePassphraseKeys2026"
-            return passphraseStr.toByteArray()
+            val preferences = SecurePreferences.get(context.applicationContext)
+            preferences.getString(DB_PASSPHRASE_KEY, null)?.let { encoded ->
+                return Base64.decode(encoded, Base64.NO_WRAP)
+            }
+
+            val passphrase = if (context.getDatabasePath("nabd_database").exists()) {
+                LEGACY_DB_PASSPHRASE.toByteArray(Charsets.UTF_8)
+            } else {
+                ByteArray(DB_PASSPHRASE_BYTES).also { SecureRandom().nextBytes(it) }
+            }
+
+            preferences.edit()
+                .putString(DB_PASSPHRASE_KEY, Base64.encodeToString(passphrase, Base64.NO_WRAP))
+                .apply()
+            return passphrase
         }
+
+        private const val DB_PASSPHRASE_BYTES = 32
+        private const val LEGACY_DB_PASSPHRASE = "NabdSecurePassphraseKeys2026"
     }
 }
