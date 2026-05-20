@@ -1,6 +1,7 @@
 package com.example.localqwen.rag
 
 import android.content.Context
+import android.util.Log
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
@@ -299,6 +300,7 @@ private class TfliteEmbeddingBackend(
             setNumThreads(DEFAULT_NUM_THREADS)
             setUseXNNPACK(true)
         }
+        Log.d("EmbeddingEngine", "Initializing TFLite Interpreter with XNNPACK enabled")
         val createdInterpreter = Interpreter(buffer, options)
         createdInterpreter.allocateTensors()
         validateModel(createdInterpreter)

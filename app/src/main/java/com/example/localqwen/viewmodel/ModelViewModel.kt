@@ -121,17 +121,22 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _performanceState.value = _performanceState.value?.copy(isBenchmarking = true, benchmarkResult = null)
-            _statusEvent.value = StatusEvent.Info("جاري فحص جهد الهاتف...")
+            val currentBackend = _inferenceBackend.value ?: "cpu"
+            _statusEvent.value = StatusEvent.Info("جاري فحص جهد ($currentBackend)...")
 
             val startTime = SystemClock.elapsedRealtime()
+            var firstTokenTime: Long = 0
             var tokenCount = 0
-            val testPrompt = "Write a short poem about nature."
+            val testPrompt = "Write a one-sentence greeting."
 
             try {
                 withContext(Dispatchers.IO) {
                     engine.generate(testPrompt).collect { _ ->
+                        if (tokenCount == 0) {
+                            firstTokenTime = SystemClock.elapsedRealtime()
+                        }
                         tokenCount++
-                        if (tokenCount >= 50) {
+                        if (tokenCount >= 30) {
                             throw BenchmarkFinishedException()
                         }
                     }
@@ -143,10 +148,13 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val endTime = SystemClock.elapsedRealtime()
-            val durationSeconds = (endTime - startTime) / 1000f
-            val tps = if (durationSeconds > 0) tokenCount / durationSeconds else 0f
+            val ttft = if (firstTokenTime > 0) firstTokenTime - startTime else 0L
+            val durationAfterFirst = if (endTime > firstTokenTime && firstTokenTime > 0) (endTime - firstTokenTime) / 1000f else 0f
+            val tps = if (durationAfterFirst > 0) (tokenCount - 1) / durationAfterFirst else 0f
             
-            val result = "هاتفك يولد بسرعة ${"%.1f".format(tps)} token/s"
+            val result = "[$currentBackend] TTFT: ${ttft}ms | TPS: ${"%.1f".format(tps)}"
+            Log.d("NabdPerformance", "Benchmark Result: $result")
+            
             _performanceState.value = _performanceState.value?.copy(
                 isBenchmarking = false,
                 benchmarkResult = result,
@@ -423,13 +431,18 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
             _statusEvent.value = StatusEvent.Info("جاري بناء الفهرس الدلالي...")
             try {
                 val indexedChunks = withContext(Dispatchers.Default) {
-                    TextChunker.chunkText(document.extractedText).mapIndexed { index, chunk ->
+                    val startTime = SystemClock.elapsedRealtime()
+                    val chunks = TextChunker.chunkText(document.extractedText)
+                    val results = chunks.mapIndexed { index, chunk ->
                         EmbeddingStore.IndexedChunk(
                             chunkIndex = index,
                             text = chunk,
                             vector = embeddingEngine.embed(chunk)
                         )
                     }
+                    val duration = SystemClock.elapsedRealtime() - startTime
+                    Log.d("NabdPerformance", "Embedding Indexing: ${chunks.size} chunks in ${duration}ms (${"%.1f".format(duration.toFloat() / chunks.size)}ms/chunk)")
+                    results
                 }
                 withContext(Dispatchers.IO) {
                     embeddingStore.saveIndex(document.id, indexedChunks)
