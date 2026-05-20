@@ -166,7 +166,9 @@ fun NabdApp(
         ModalBottomSheet(
             onDismissRequest = { showModelSheet = false },
             sheetState = sheetState,
-            containerColor = Color.White
+            containerColor = Color.White,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+            scrimColor = Color.Black.copy(alpha = 0.25f)
         ) {
             Column(
                 modifier = Modifier

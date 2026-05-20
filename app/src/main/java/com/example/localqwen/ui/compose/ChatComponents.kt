@@ -233,7 +233,8 @@ fun ChatInputBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp)
+            .alpha(if (isEnabled) 1f else 0.7f),
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFFF5F5F5),
         shadowElevation = 0.dp
