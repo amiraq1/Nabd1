@@ -58,6 +58,9 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
     private val _responseMode = MutableLiveData<String>(preferences.getString(KEY_RESPONSE_MODE, "balanced") ?: "balanced")
     val responseMode: LiveData<String> = _responseMode
 
+    private val _inferenceBackend = MutableLiveData<String>(preferences.getString(KEY_INFERENCE_BACKEND, "cpu") ?: "cpu")
+    val inferenceBackend: LiveData<String> = _inferenceBackend
+
     var textInferenceEngine: NabdInferenceEngine? = null
         private set
 
@@ -166,6 +169,11 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         preferences.edit().putString(KEY_RESPONSE_MODE, mode).apply()
     }
 
+    fun setInferenceBackend(backend: String) {
+        _inferenceBackend.value = backend
+        preferences.edit().putString(KEY_INFERENCE_BACKEND, backend).apply()
+    }
+
     fun importModel(model: SupportedModel, uri: android.net.Uri) {
         viewModelScope.launch {
             _statusEvent.value = StatusEvent.Info("جاري استيراد ${model.displayName}...")
@@ -235,11 +243,13 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
                 textInferenceEngine = null
                 
                 val newEngine = LiteRtLmInferenceEngine()
+                val backend = _inferenceBackend.value ?: "cpu"
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
                         newEngine.load(
                             modelManager.modelPath(model),
-                            getApplication<Application>().cacheDir.absolutePath
+                            getApplication<Application>().cacheDir.absolutePath,
+                            backend
                         )
                     }
                 }
@@ -445,6 +455,7 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_RAG_SEARCH_MODE = "rag_search_mode"
         private const val KEY_EMBEDDING_BACKEND = "embedding_backend"
         private const val KEY_RESPONSE_MODE = "response_mode"
+        private const val KEY_INFERENCE_BACKEND = "inference_backend"
     }
 }
 

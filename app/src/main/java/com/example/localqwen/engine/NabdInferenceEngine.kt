@@ -5,6 +5,11 @@ import kotlinx.coroutines.flow.Flow
 interface NabdInferenceEngine {
     @Throws(Exception::class)
     suspend fun load(modelPath: String, cacheDir: String)
+
+    @Throws(Exception::class)
+    suspend fun load(modelPath: String, cacheDir: String, backendName: String) {
+        load(modelPath, cacheDir)
+    }
     
     suspend fun unload()
     

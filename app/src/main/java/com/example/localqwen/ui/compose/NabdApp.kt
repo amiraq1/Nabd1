@@ -29,6 +29,7 @@ import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.Role
 import com.example.localqwen.viewmodel.ChatViewModel
 import com.example.localqwen.viewmodel.ModelViewModel
+import com.example.localqwen.viewmodel.ModelState
 import com.example.localqwen.viewmodel.MemoryViewModel
 import com.example.localqwen.viewmodel.StatusEvent
 import com.example.localqwen.viewmodel.MemoryCommandResult
@@ -264,6 +265,42 @@ fun NabdApp(
                             contentPadding = PaddingValues(4.dp)
                         ) {
                             Text(label, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // Inference Backend Selector
+                val inferenceBackend by modelViewModel.inferenceBackend.observeAsState("cpu")
+                Text(
+                    "محرك التوليد",
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val backends = listOf("cpu" to "CPU (XNNPACK)", "gpu" to "GPU", "npu" to "NPU")
+                    backends.forEach { (backend, label) ->
+                        val isSelected = inferenceBackend == backend
+                        Button(
+                            onClick = { 
+                                modelViewModel.setInferenceBackend(backend)
+                                // If already ready, reload with new backend
+                                if (modelViewModel.modelState.value is ModelState.Ready) {
+                                    modelViewModel.loadModel()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSelected) Color(0xFFFF5A5F) else Color(0xFFEEEEEE),
+                                contentColor = if (isSelected) Color.White else Color.Black
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(4.dp)
+                        ) {
+                            Text(label, fontSize = 10.sp)
                         }
                     }
                 }

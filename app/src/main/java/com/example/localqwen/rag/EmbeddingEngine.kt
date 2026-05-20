@@ -297,6 +297,7 @@ private class TfliteEmbeddingBackend(
         val buffer = mapModelFile(modelFile)
         val options = Interpreter.Options().apply {
             setNumThreads(DEFAULT_NUM_THREADS)
+            setUseXNNPACK(true)
         }
         val createdInterpreter = Interpreter(buffer, options)
         createdInterpreter.allocateTensors()

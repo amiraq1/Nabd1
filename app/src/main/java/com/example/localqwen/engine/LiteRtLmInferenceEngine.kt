@@ -1,5 +1,6 @@
 package com.example.localqwen.engine
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -12,12 +13,27 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
     private var conversation: Any? = null
 
     override suspend fun load(modelPath: String, cacheDir: String) {
+        load(modelPath, cacheDir, "cpu")
+    }
+
+    override suspend fun load(modelPath: String, cacheDir: String, backendName: String) {
         withContext(Dispatchers.IO) {
             try {
                 unload()
 
                 val refs = LiteRtRefs()
-                val cpuBackend = refs.cpuBackendClass.getConstructor().newInstance()
+                val backend = try {
+                    val backendClassName = when (backendName.lowercase()) {
+                        "gpu" -> "com.google.ai.edge.litertlm.Backend\$GPU"
+                        "npu" -> "com.google.ai.edge.litertlm.Backend\$NPU"
+                        else -> "com.google.ai.edge.litertlm.Backend\$CPU"
+                    }
+                    Class.forName(backendClassName).getConstructor().newInstance()
+                } catch (e: Exception) {
+                    Log.e("LiteRtEngine", "Failed to load backend $backendName, falling back to CPU", e)
+                    refs.cpuBackendClass.getConstructor().newInstance()
+                }
+
                 val config = refs.engineConfigClass
                     .getConstructor(
                         String::class.java,
@@ -28,7 +44,7 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                         Integer::class.java,
                         String::class.java
                     )
-                    .newInstance(modelPath, cpuBackend, cpuBackend, cpuBackend, null, null, cacheDir)
+                    .newInstance(modelPath, backend, backend, backend, null, null, cacheDir)
 
                 val newEngine = refs.engineClass.getConstructor(refs.engineConfigClass).newInstance(config)
                 refs.engineClass.getMethod("initialize").invoke(newEngine)
