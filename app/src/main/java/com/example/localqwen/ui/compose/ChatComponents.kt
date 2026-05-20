@@ -13,8 +13,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,46 +91,70 @@ fun MessageBubble(message: ChatMessage) {
             .padding(vertical = 6.dp, horizontal = 4.dp), // Reduced from 12.dp to 4.dp
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
+        val context = LocalContext.current
+        val clipboardManager = LocalClipboardManager.current
+
         if (!isUser) {
             AssistantAvatar()
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        Box(
-            modifier = Modifier
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 20.dp,
-                        topEnd = 20.dp,
-                        bottomStart = if (isUser) 20.dp else 4.dp,
-                        bottomEnd = if (isUser) 4.dp else 20.dp
+        Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+            Box(
+                modifier = Modifier
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 20.dp,
+                            topEnd = 20.dp,
+                            bottomStart = if (isUser) 20.dp else 4.dp,
+                            bottomEnd = if (isUser) 4.dp else 20.dp
+                        )
                     )
-                )
-                .background(if (isUser) Color(0xFFFF5A5F) else Color(0xFFF0F0F0))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp) // Dynamic max width (88% of screen)
-        ) {
-            val cleanedText = remember(message.text) {
-                // Collapse multiple newlines into one and perform basic Markdown cleanup
-                message.text
-                    .replace(Regex("\\n{2,}"), "\n")
-                    .replace("**", "")
-                    .replace("__", "")
-                    .replace(Regex("^#+\\s*"), "")
-                    .trim()
+                    .background(if (isUser) Color(0xFFFF5A5F) else Color(0xFFF0F0F0))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp) // Dynamic max width (88% of screen)
+            ) {
+                val cleanedText = remember(message.text) {
+                    // Collapse multiple newlines into one and perform basic Markdown cleanup
+                    message.text
+                        .replace(Regex("\\n{2,}"), "\n")
+                        .replace("**", "")
+                        .replace("__", "")
+                        .replace(Regex("^#+\\s*"), "")
+                        .trim()
+                }
+
+                SelectionContainer {
+                    Text(
+                        text = cleanedText,
+                        color = if (isUser) Color.White else Color(0xFF1A1A1A),
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        style = TextStyle(
+                            textDirection = TextDirection.Rtl,
+                            textAlign = TextAlign.Start // "Start" in RTL is Right
+                        )
+                    )
+                }
             }
 
-            SelectionContainer {
-                Text(
-                    text = cleanedText,
-                    color = if (isUser) Color.White else Color(0xFF1A1A1A),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                    style = TextStyle(
-                        textDirection = TextDirection.Rtl,
-                        textAlign = TextAlign.Start // "Start" in RTL is Right
+            if (!isUser && message.text.isNotBlank()) {
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(message.text))
+                        Toast.makeText(context, "تم نسخ الرد", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .padding(top = 4.dp, start = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy",
+                        tint = Color.Gray.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
                     )
-                )
+                }
             }
         }
 
