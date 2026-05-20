@@ -45,6 +45,7 @@ fun NabdApp(
     val selectedModel by modelViewModel.selectedModel.observeAsState()
     val modelState by modelViewModel.modelState.observeAsState()
     val statusEvent by chatViewModel.statusEvent.observeAsState()
+    val modelStatusEvent by modelViewModel.statusEvent.observeAsState()
     val currentTps by chatViewModel.currentTps.observeAsState(0f)
     val performanceState by modelViewModel.performanceState.observeAsState(com.example.localqwen.viewmodel.PerformanceState())
     
@@ -72,8 +73,8 @@ fun NabdApp(
         uri?.let { chatViewModel.importDocument(it) }
     }
 
-    LaunchedEffect(statusEvent, currentTps) {
-        statusEvent?.let { event ->
+    LaunchedEffect(statusEvent, modelStatusEvent, currentTps) {
+        (statusEvent ?: modelStatusEvent)?.let { event ->
             val base = when (event) {
                 is StatusEvent.Info -> event.message
                 is StatusEvent.Success -> event.message
@@ -112,7 +113,8 @@ fun NabdApp(
                     embeddingStore = modelViewModel.embeddingStore,
                     semanticRetriever = modelViewModel.semanticRetriever,
                     ragMode = modelViewModel.currentRagMode(),
-                    documentAnswerLengthInstruction = chatViewModel.currentDocumentAnswerLength()
+                    documentAnswerLengthInstruction = chatViewModel.currentDocumentAnswerLength(),
+                    memoryContext = memoryViewModel.buildMemoryContextForPrompt()
                 )
             }
         }

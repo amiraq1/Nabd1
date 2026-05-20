@@ -3,6 +3,7 @@ package com.example.localqwen.viewmodel
 import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -11,6 +12,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.example.localqwen.engine.LiteRtLmInferenceEngine
 import com.example.localqwen.engine.NabdInferenceEngine
+import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.model.ModelManager
 import com.example.localqwen.model.ModelManager.SupportedModel
 import com.example.localqwen.rag.EmbeddingBackend
@@ -19,6 +21,7 @@ import com.example.localqwen.rag.EmbeddingModelManager
 import com.example.localqwen.rag.EmbeddingStore
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.SemanticRetriever
+import com.example.localqwen.rag.TextChunker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -150,11 +153,27 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val success = withContext(Dispatchers.IO) {
                     val targetFile = modelManager.modelFile(model)
-                    targetFile.parentFile?.mkdirs()
+                    val tempFile = modelManager.tempModelFile(model)
+                    tempFile.parentFile?.mkdirs()
+                    if (tempFile.exists()) tempFile.delete()
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
-                        targetFile.outputStream().use { output ->
+                        tempFile.outputStream().use { output ->
                             input.copyTo(output)
                         }
+                    } ?: error("تعذر فتح ملف النموذج")
+
+                    if (tempFile.length() < ModelManager.MIN_MODEL_SIZE_BYTES) {
+                        tempFile.delete()
+                        error("ملف النموذج صغير جدًا أو غير مكتمل")
+                    }
+
+                    if (targetFile.exists() && !targetFile.delete()) {
+                        tempFile.delete()
+                        error("تعذر استبدال ملف النموذج السابق")
+                    }
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
                     }
                     true
                 }
@@ -296,6 +315,101 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
     fun embeddingModelStatus(): String {
         return if (embeddingModelManager.isEmbeddingModelReady()) "مستورد" else "غير مستورد"
+    }
+
+    fun importEmbeddingModel(uri: Uri) {
+        viewModelScope.launch {
+            _statusEvent.value = StatusEvent.Info("جاري استيراد نموذج التضمين...")
+            try {
+                withContext(Dispatchers.IO) {
+                    embeddingEngine.close()
+                    embeddingModelManager.importEmbeddingModel(uri)
+                }
+                _statusEvent.value = StatusEvent.Success("تم استيراد نموذج التضمين")
+            } catch (error: Exception) {
+                _statusEvent.value = StatusEvent.Error("فشل استيراد نموذج التضمين: ${error.message}")
+            }
+        }
+    }
+
+    fun deleteEmbeddingModel() {
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                embeddingEngine.close()
+                embeddingModelManager.deleteEmbeddingModel()
+            }
+            _statusEvent.value = if (deleted) {
+                StatusEvent.Success("تم حذف نموذج التضمين")
+            } else {
+                StatusEvent.Error("تعذر حذف نموذج التضمين")
+            }
+        }
+    }
+
+    fun deleteEmbeddingIndexes() {
+        viewModelScope.launch {
+            val deleted = withContext(Dispatchers.IO) {
+                embeddingStore.deleteAllIndexes()
+            }
+            _statusEvent.value = if (deleted) {
+                StatusEvent.Success("تم حذف الفهارس الدلالية")
+            } else {
+                StatusEvent.Error("تعذر حذف الفهارس الدلالية")
+            }
+        }
+    }
+
+    fun setRagMode(value: String) {
+        val mode = when (value.lowercase(Locale.ROOT)) {
+            "keyword" -> RagMode.KEYWORD
+            "semantic" -> RagMode.SEMANTIC
+            else -> RagMode.AUTO
+        }
+        preferences.edit().putString(KEY_RAG_SEARCH_MODE, mode.name).apply()
+        _statusEvent.value = StatusEvent.Success("تم تحديث وضع البحث")
+    }
+
+    fun setEmbeddingBackend(value: String) {
+        val backend = when (value.lowercase(Locale.ROOT)) {
+            "mediapipe" -> EmbeddingBackend.MEDIAPIPE
+            "tflite" -> EmbeddingBackend.TFLITE
+            else -> EmbeddingBackend.AUTO
+        }
+        embeddingEngine.close()
+        preferences.edit().putString(KEY_EMBEDDING_BACKEND, backend.name).apply()
+        _statusEvent.value = StatusEvent.Success("تم تحديث محرك التضمين")
+    }
+
+    fun buildSemanticIndex(document: LocalDocument?) {
+        if (document == null) {
+            _statusEvent.value = StatusEvent.Error("اختر مستندًا أولاً لبناء الفهرس الدلالي.")
+            return
+        }
+        if (!embeddingEngine.isReady()) {
+            _statusEvent.value = StatusEvent.Error("استورد نموذج التضمين أولاً.")
+            return
+        }
+
+        viewModelScope.launch {
+            _statusEvent.value = StatusEvent.Info("جاري بناء الفهرس الدلالي...")
+            try {
+                val indexedChunks = withContext(Dispatchers.Default) {
+                    TextChunker.chunkText(document.extractedText).mapIndexed { index, chunk ->
+                        EmbeddingStore.IndexedChunk(
+                            chunkIndex = index,
+                            text = chunk,
+                            vector = embeddingEngine.embed(chunk)
+                        )
+                    }
+                }
+                withContext(Dispatchers.IO) {
+                    embeddingStore.saveIndex(document.id, indexedChunks)
+                }
+                _statusEvent.value = StatusEvent.Success("تم بناء الفهرس الدلالي")
+            } catch (error: Exception) {
+                _statusEvent.value = StatusEvent.Error("تعذر بناء الفهرس الدلالي: ${error.message}")
+            }
+        }
     }
 
     override fun onCleared() {
