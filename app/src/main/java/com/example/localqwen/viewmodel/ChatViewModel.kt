@@ -31,14 +31,21 @@ import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.work.PdfProcessingWorker
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.example.localqwen.data.SecurePreferences
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -130,40 +137,116 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun importDocument(uri: Uri) {
         val context = getApplication<Application>()
         val fileName = getFileName(context, uri) ?: "مستند غير معروف"
+        val mimeType = context.contentResolver.getType(uri) ?: ""
         
         _isProcessingDocument.value = true
         _statusEvent.value = StatusEvent.Info("جاري معالجة المستند...")
 
         viewModelScope.launch {
             try {
-                if (fileName.endsWith(".pdf", ignoreCase = true)) {
-                    enqueuePdfProcessing(uri, fileName)
-                } else {
-                    val text = withContext(Dispatchers.IO) {
-                        readTextFromUri(context, uri)
-                    }
-                    if (text.isNotBlank()) {
-                        val document = LocalDocument(
-                            id = UUID.randomUUID().toString(),
-                            title = fileName,
-                            type = "txt",
-                            extractedText = text,
-                            createdAt = System.currentTimeMillis()
-                        )
-                        documentStore.saveDocument(document)
-                        documentStore.setSelectedDocumentId(document.id)
-                        _statusEvent.value = StatusEvent.Success("تمت إضافة المستند بنجاح: $fileName")
-                    } else {
-                        _statusEvent.value = StatusEvent.Error("عذراً، يبدو أن المستند فارغ ولا يحتوي على نص.")
-                    }
+                // 1. Safe Copy to internal cache to prevent URI permission expiration
+                val localFile = copyUriToLocalFile(uri, fileName)
+                if (localFile == null || !localFile.exists()) {
+                    _statusEvent.value = StatusEvent.Error("تعذر الوصول للملف. تأكد من وجود مساحة كافية.")
                     _isProcessingDocument.value = false
+                    return@launch
+                }
+
+                val localUri = Uri.fromFile(localFile)
+
+                // 2. Identify file type by MIME or extension
+                val isPdf = mimeType == "application/pdf" || fileName.endsWith(".pdf", ignoreCase = true)
+                val isImage = mimeType.startsWith("image/") || 
+                             listOf(".jpg", ".jpeg", ".png", ".webp").any { fileName.endsWith(it, ignoreCase = true) }
+
+                when {
+                    isPdf -> {
+                        enqueuePdfProcessing(localUri, fileName)
+                    }
+                    isImage -> {
+                        processImageOcr(localFile, fileName)
+                        _isProcessingDocument.value = false
+                    }
+                    else -> {
+                        // Fallback: Try reading as plain text
+                        val text = withContext(Dispatchers.IO) {
+                            try { localFile.readText() } catch (_: Exception) { "" }
+                        }
+                        if (text.isNotBlank()) {
+                            saveTextDocument(fileName, text)
+                        } else {
+                            _statusEvent.value = StatusEvent.Error("صيغة الملف غير مدعومة أو الملف فارغ.")
+                        }
+                        _isProcessingDocument.value = false
+                    }
                 }
             } catch (e: Exception) {
-                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء محاولة قراءة المستند. تأكد من أن الملف سليم.")
+                Log.e("ChatViewModel", "Error importing document", e)
+                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء معالجة المستند.")
                 _isProcessingDocument.value = false
             }
         }
     }
+
+    private suspend fun copyUriToLocalFile(uri: Uri, fileName: String): File? = withContext(Dispatchers.IO) {
+        val context = getApplication<Application>()
+        val attachmentsDir = File(context.cacheDir, "attachments").apply { mkdirs() }
+        val destFile = File(attachmentsDir, "${UUID.randomUUID()}_$fileName")
+        
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            destFile
+        } catch (e: Exception) {
+            Log.e("ChatViewModel", "Failed to copy URI to local file", e)
+            null
+        }
+    }
+
+    private suspend fun processImageOcr(file: File, title: String) {
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        try {
+            val image = InputImage.fromFilePath(getApplication(), Uri.fromFile(file))
+            val result = recognizer.process(image).awaitTask()
+            val text = result.text.trim()
+            
+            if (text.isNotBlank()) {
+                saveTextDocument("صورة - $title", text, type = "image_ocr")
+                _statusEvent.value = StatusEvent.Success("تم استخراج النص من الصورة، يمكنك الآن سؤالي عنها!")
+            } else {
+                _statusEvent.value = StatusEvent.Error("لم أجد نصاً واضحاً داخل الصورة.")
+            }
+        } catch (e: Exception) {
+            Log.e("ChatViewModel", "OCR failed", e)
+            _statusEvent.value = StatusEvent.Error("فشل استخراج النص من الصورة.")
+        } finally {
+            recognizer.close()
+        }
+    }
+
+    private suspend fun saveTextDocument(title: String, text: String, type: String = "txt") {
+        val document = LocalDocument(
+            id = UUID.randomUUID().toString(),
+            title = title,
+            type = type,
+            extractedText = text,
+            createdAt = System.currentTimeMillis()
+        )
+        documentStore.saveDocument(document)
+        documentStore.setSelectedDocumentId(document.id)
+        if (type == "txt") {
+            _statusEvent.value = StatusEvent.Success("تمت إضافة المستند بنجاح: $title")
+        }
+    }
+
+    private suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitTask(): T =
+        suspendCancellableCoroutine { cont ->
+            addOnSuccessListener { cont.resume(it) }
+            addOnFailureListener { cont.resumeWithException(it) }
+        }
 
     private fun enqueuePdfProcessing(uri: Uri, title: String) {
         val context = getApplication<Application>()
