@@ -30,6 +30,8 @@ import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.rag.TextChunker
+import com.example.localqwen.engine.GemmaImageAnalyzer
+// ... keep existing imports ...
 import com.example.localqwen.work.PdfProcessingWorker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -49,6 +51,69 @@ import kotlin.coroutines.resumeWithException
 import com.example.localqwen.data.SecurePreferences
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
+// ... existing code ...
+
+    private var imageAnalyzer: GemmaImageAnalyzer? = null
+
+    fun analyzeImageWithGemma(uri: Uri, question: String) {
+        val context = getApplication<Application>()
+        _isGenerating.value = true
+        _statusEvent.value = StatusEvent.Info("جاري تحليل الصورة...")
+        
+        // Add the user message immediately
+        addChatMessage(ChatMessage(role = Role.USER, text = "[صورة مرفقة]\n$question"))
+        val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
+        addChatMessage(assistantMessage)
+        _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = true)
+        
+        viewModelScope.launch {
+            try {
+                if (imageAnalyzer == null) {
+                    imageAnalyzer = GemmaImageAnalyzer(context)
+                    // Ensure the model path is valid. 
+                    // This assumes the user has imported the model or put it in context.filesDir/models/...
+                    val modelManager = com.example.localqwen.model.ModelManager(context)
+                    val model = modelManager.getModelById("gemma_3n_e2b_it")
+                    if (model == null || !modelManager.isModelImported(model.id)) {
+                        _statusEvent.value = StatusEvent.Error("النموذج المطلوب (gemma-3n-E2B-it) غير متوفر.")
+                        _isGenerating.value = false
+                        return@launch
+                    }
+                    val path = modelManager.modelPath(model)
+                    imageAnalyzer?.loadModel(path)
+                }
+                
+                val output = StringBuilder()
+                withContext(Dispatchers.IO) {
+                    imageAnalyzer?.analyzeImage(uri, question)?.collect { chunk ->
+                        output.append(chunk)
+                        val updatedMessage = assistantMessage.copy(text = cleanForDisplay(output.toString()))
+                        chatMessages[chatMessages.lastIndex] = updatedMessage
+                        withContext(Dispatchers.Main) {
+                            _messages.value = chatMessages.toList()
+                            _scrollToBottom.value = true
+                        }
+                    }
+                }
+                
+                lastAssistantResponse = cleanForDisplay(output.toString(), preserveMarkdown = true)
+                saveActiveSessionDebounced()
+                _statusEvent.value = StatusEvent.Success("اكتمل التحليل")
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Image analysis failed", e)
+                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء تحليل الصورة.")
+                val updatedMessage = assistantMessage.copy(text = "حدث خطأ أثناء تحليل الصورة.")
+                chatMessages[chatMessages.lastIndex] = updatedMessage
+                _messages.value = chatMessages.toList()
+            } finally {
+                _isGenerating.value = false
+                _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = false)
+                imageAnalyzer?.unload()
+                imageAnalyzer = null
+            }
+        }
+    }
+
 
     private val preferences = SecurePreferences.get(application)
     private val db = NabdDatabase.getInstance(application)

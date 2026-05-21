@@ -27,6 +27,7 @@ fun ChatScreen(
     isGenerating: Boolean,
     onSendMessage: (String) -> Unit,
     onAddAttachment: () -> Unit,
+    onAnalyzeImage: () -> Unit = {},
     onMenuClick: () -> Unit,
     onBackClick: () -> Unit,
     statusText: String = "جاهز",
@@ -96,6 +97,7 @@ fun ChatScreen(
             ChatInputBar(
                 onSendMessage = onSendMessage,
                 onAddAttachment = onAddAttachment,
+                onAnalyzeImage = onAnalyzeImage,
                 isEnabled = !isGenerating
             )
         }

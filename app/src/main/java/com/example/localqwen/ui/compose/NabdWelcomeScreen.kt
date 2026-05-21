@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,12 +30,14 @@ import com.example.localqwen.ui.compose.NabdPulseButton
 fun NabdWelcomeScreen(
     onSendMessage: (String) -> Unit = {},
     onAddAttachment: () -> Unit = {},
+    onAnalyzeImage: () -> Unit = {},
     onShowHistory: () -> Unit = {},
     onShowMenu: () -> Unit = {},
     onModelBadgeClick: () -> Unit = {},
     activeModelName: String = "Gemma-2B (Local)"
 ) {
     var textInput by remember { mutableStateOf("") }
+
 
     Scaffold(
         containerColor = Color(0xFFF9F9F9),
@@ -149,6 +152,19 @@ fun NabdWelcomeScreen(
                         isEnabled = true,
                         modifier = Modifier.size(50.dp)
                     )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    FloatingActionButton(
+                        onClick = onAnalyzeImage,
+                        modifier = Modifier.size(50.dp),
+                        shape = CircleShape,
+                        containerColor = Color(0xFFF0F0F0),
+                        contentColor = Color(0xFF333333),
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = "Analyze Image")
+                    }
 
                     Spacer(modifier = Modifier.width(8.dp))
 

@@ -82,7 +82,51 @@ fun NabdApp(
         uri?.let { chatViewModel.importDocument(it) }
     }
 
+    // New Image Picker for Gemma 3 Vision
+    var showVisionDialog by remember { mutableStateOf(false) }
+    var selectedVisionUri by remember { mutableStateOf<Uri?>(null) }
+    
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            selectedVisionUri = it
+            showVisionDialog = true
+        }
+    }
+
+    if (showVisionDialog && selectedVisionUri != null) {
+        var visionPrompt by remember { mutableStateOf("اشرح لي هذه الصورة") }
+        AlertDialog(
+            onDismissRequest = { showVisionDialog = false },
+            title = { Text("تحليل الصورة") },
+            text = {
+                OutlinedTextField(
+                    value = visionPrompt,
+                    onValueChange = { visionPrompt = it },
+                    label = { Text("السؤال") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showVisionDialog = false
+                    chatViewModel.analyzeImageWithGemma(selectedVisionUri!!, visionPrompt)
+                    selectedVisionUri = null
+                }) {
+                    Text("إرسال")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVisionDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
     LaunchedEffect(statusEvent, modelStatusEvent, currentTps) {
+
         (statusEvent ?: modelStatusEvent)?.let { event ->
             val base = when (event) {
                 is StatusEvent.Info -> event.message

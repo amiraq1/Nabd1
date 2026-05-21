@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
@@ -251,6 +252,7 @@ fun NabdPulseButton(
 fun ChatInputBar(
     onSendMessage: (String) -> Unit,
     onAddAttachment: () -> Unit,
+    onAnalyzeImage: () -> Unit = {},
     isEnabled: Boolean = true
 ) {
     var text by remember { mutableStateOf("") }
@@ -292,8 +294,13 @@ fun ChatInputBar(
             IconButton(onClick = onAddAttachment, enabled = isEnabled) {
                 Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF666666))
             }
+            
+            IconButton(onClick = onAnalyzeImage, enabled = isEnabled) {
+                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = Color(0xFF666666))
+            }
 
             BasicTextField(
+
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier
