@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
             modelStatus = modelViewModel.currentModelStatusLabel(),
             modelE2bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[0]),
             modelE4bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[1]),
+            modelVisionStatus = modelViewModel.modelImportStatus(ModelManager.VISION_MODEL),
             documentAnswerLength = chatViewModel.currentDocumentAnswerLength(),
             ragSearchMode = modelViewModel.currentRagMode().name.lowercase(),
             embeddingBackend = modelViewModel.currentEmbeddingBackend().name.lowercase(),
