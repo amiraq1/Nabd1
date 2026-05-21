@@ -19,16 +19,15 @@ import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -193,8 +192,8 @@ fun UserAvatar() {
 fun NabdPulseButton(
     onClick: () -> Unit,
     isActive: Boolean, // Renamed from isEnabled to reflect "Send" state
-    isEnabled: Boolean = true, // Overall clickability
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isEnabled: Boolean = true // Overall clickability
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val scale by infiniteTransition.animateFloat(
@@ -251,26 +250,33 @@ fun NabdPulseButton(
 fun ChatInputBar(
     onSendMessage: (String) -> Unit,
     onAddAttachment: () -> Unit,
-    isEnabled: Boolean = true
+    onCancelGeneration: () -> Unit,
+    isBusy: Boolean = false
 ) {
-    var text by remember { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf("") }
     
-    val starters = listOf(
-        "اقترح علي فكرة تطبيق مميزة",
-        "اكتب لي كود كوتلن بسيط",
-        "كيف أحسن إنتاجيتي اليوم؟",
-        "لخص لي أهمية الذكاء الاصطناعي المحلي",
-        "أخبرني نكتة برمجية"
-    )
+    val starters = remember {
+        listOf(
+            "اقترح علي فكرة تطبيق مميزة",
+            "اكتب لي كود كوتلن بسيط",
+            "كيف أحسن إنتاجيتي اليوم؟",
+            "لخص لي أهمية الذكاء الاصطناعي المحلي",
+            "أخبرني نكتة برمجية"
+        )
+    }
+
+    fun submitText() {
+        val message = text.trim()
+        if (message.isNotEmpty() && !isBusy) {
+            onSendMessage(message)
+            text = ""
+        }
+    }
 
     val handlePulseClick = {
         if (text.isNotBlank()) {
-            if (isEnabled) {
-                onSendMessage(text)
-                text = ""
-            }
+            submitText()
         } else {
-            // Field is empty, provide a random starter
             text = starters.random()
         }
     }
@@ -279,7 +285,7 @@ fun ChatInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .alpha(if (isEnabled) 1f else 0.7f),
+            .alpha(if (isBusy) 0.85f else 1f),
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFFF5F5F5),
         shadowElevation = 0.dp
@@ -289,7 +295,7 @@ fun ChatInputBar(
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onAddAttachment, enabled = isEnabled) {
+            IconButton(onClick = onAddAttachment, enabled = !isBusy) {
                 Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF666666))
             }
 
@@ -298,9 +304,17 @@ fun ChatInputBar(
                 onValueChange = { text = it },
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp),
-                enabled = isEnabled,
-                textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF1A1A1A)),
+                    .padding(horizontal = 8.dp)
+                    .heightIn(min = 24.dp, max = 120.dp),
+                enabled = true,
+                textStyle = TextStyle(
+                    fontSize = 16.sp,
+                    color = Color(0xFF1A1A1A),
+                    textDirection = TextDirection.Rtl,
+                    textAlign = TextAlign.Start
+                ),
+                minLines = 1,
+                maxLines = 4,
                 decorationBox = { innerTextField ->
                     if (text.isEmpty()) {
                         Text("اكتب رسالة...", color = Color.Gray, fontSize = 16.sp)
@@ -309,20 +323,49 @@ fun ChatInputBar(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { 
-                    if (text.isNotBlank() && isEnabled) {
-                        onSendMessage(text)
-                        text = ""
-                    }
+                    submitText()
                 })
             )
 
-            NabdPulseButton(
-                onClick = handlePulseClick,
-                isActive = text.isNotBlank(),
-                isEnabled = isEnabled,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            if (isBusy) {
+                StopGenerationButton(
+                    onClick = onCancelGeneration,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            } else {
+                NabdPulseButton(
+                    onClick = handlePulseClick,
+                    isActive = text.isNotBlank(),
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    isEnabled = true
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun StopGenerationButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFFFE4E6))
+            .clickable(
+                onClick = onClick,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Stop,
+            contentDescription = "إيقاف التوليد",
+            tint = Color(0xFFFF5A5F)
+        )
     }
 }
 

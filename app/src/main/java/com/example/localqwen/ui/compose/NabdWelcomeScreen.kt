@@ -6,19 +6,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,9 +35,19 @@ fun NabdWelcomeScreen(
     onShowHistory: () -> Unit = {},
     onShowMenu: () -> Unit = {},
     onModelBadgeClick: () -> Unit = {},
-    activeModelName: String = "Gemma-2B (Local)"
+    activeModelName: String = "Gemma-2B (Local)",
+    isBusy: Boolean = false,
+    statusText: String = "جاهز"
 ) {
-    var textInput by remember { mutableStateOf("") }
+    var textInput by rememberSaveable { mutableStateOf("") }
+
+    fun submitText() {
+        val message = textInput.trim()
+        if (message.isNotEmpty() && !isBusy) {
+            onSendMessage(message)
+            textInput = ""
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFFF9F9F9),
@@ -115,6 +128,24 @@ fun NabdWelcomeScreen(
                     .padding(horizontal = 16.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (isBusy) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp),
+                        color = Color(0xFFFF5A5F),
+                        trackColor = Color.Transparent
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = statusText,
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -133,31 +164,29 @@ fun NabdWelcomeScreen(
                             focusedBorderColor = Color.Transparent,
                             unfocusedBorderColor = Color.Transparent
                         ),
-                        singleLine = true
+                        singleLine = true,
+                        enabled = !isBusy,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { submitText() })
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
                     NabdPulseButton(
-                        onClick = {
-                            if (textInput.isNotBlank()) {
-                                onSendMessage(textInput)
-                                textInput = ""
-                            }
-                        },
+                        onClick = { submitText() },
                         isActive = textInput.isNotBlank(),
-                        isEnabled = true,
-                        modifier = Modifier.size(50.dp)
+                        modifier = Modifier.size(50.dp),
+                        isEnabled = !isBusy && textInput.isNotBlank()
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
                     FloatingActionButton(
-                        onClick = onAddAttachment,
+                        onClick = { if (!isBusy) onAddAttachment() },
                         modifier = Modifier.size(50.dp),
                         shape = CircleShape,
-                        containerColor = Color(0xFFF0F0F0),
-                        contentColor = Color(0xFF333333),
+                        containerColor = if (isBusy) Color(0xFFE6E6E6) else Color(0xFFF0F0F0),
+                        contentColor = if (isBusy) Color(0xFF999999) else Color(0xFF333333),
                         elevation = FloatingActionButtonDefaults.elevation(0.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Add Attachment")

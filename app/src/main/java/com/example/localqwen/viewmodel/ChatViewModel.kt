@@ -332,6 +332,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (input.isBlank()) return
         if (_isGenerating.value == true) return
+        if (_isPreparingContext.value == true) return
 
         val userMessage = ChatMessage(role = Role.USER, text = input.trim())
         addChatMessage(userMessage)
@@ -349,53 +350,72 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         generationJob = viewModelScope.launch {
-            val selectedDocument = getSelectedDocumentAsync()
-            val contextResult = try {
-                withContext(Dispatchers.IO) {
-                    buildDocumentContext(
-                        query = input,
-                        document = selectedDocument,
-                        ragMode = ragMode,
-                        embeddingEngine = embeddingEngine,
-                        embeddingStore = embeddingStore,
-                        semanticRetriever = semanticRetriever
+            try {
+                val selectedDocument = getSelectedDocumentAsync()
+                val contextResult = try {
+                    withContext(Dispatchers.IO) {
+                        buildDocumentContext(
+                            query = input,
+                            document = selectedDocument,
+                            ragMode = ragMode,
+                            embeddingEngine = embeddingEngine,
+                            embeddingStore = embeddingStore,
+                            semanticRetriever = semanticRetriever
+                        )
+                    }
+                } catch (_: Exception) {
+                    DocumentContextResult(context = null, generationStatus = "جاري التوليد...")
+                }
+
+                val historyContext = buildChatHistoryPrompt(limit = 6)
+
+                val prompt = if (contextResult.context != null) {
+                    NabdSystemPrompt.documentPrompt(
+                        userInput = input,
+                        contextChunks = contextResult.context,
+                        answerLengthInstruction = documentAnswerLengthInstruction,
+                        historyContext = historyContext,
+                        responseMode = responseMode
+                    )
+                } else {
+                    NabdSystemPrompt.normalChatPrompt(
+                        userInput = input,
+                        historyContext = historyContext,
+                        memoryContext = memoryContext,
+                        responseMode = responseMode
                     )
                 }
-            } catch (_: Exception) {
-                DocumentContextResult(context = null, generationStatus = "جاري التوليد...")
-            }
 
-            val historyContext = buildChatHistoryPrompt(limit = 6)
+                _isPreparingContext.value = false
 
-            val prompt = if (contextResult.context != null) {
-                NabdSystemPrompt.documentPrompt(
-                    userInput = input,
-                    contextChunks = contextResult.context,
-                    answerLengthInstruction = documentAnswerLengthInstruction,
-                    historyContext = historyContext,
-                    responseMode = responseMode
+                try {
+                    engine?.resetConversation()
+                } catch (_: Exception) {
+                    // Keep generation available even if an engine cannot reset its transient state.
+                }
+
+                startGeneration(
+                    engine = engine,
+                    prompt = prompt,
+                    status = contextResult.generationStatus,
+                    autoTitle = chatMessages.count { it.role == Role.USER } == 1,
+                    firstUserMessage = input
                 )
-            } else {
-                NabdSystemPrompt.normalChatPrompt(
-                    userInput = input, 
-                    historyContext = historyContext, 
-                    memoryContext = memoryContext,
-                    responseMode = responseMode
-                )
+            } catch (_: CancellationException) {
+                finishStoppedGeneration()
+            } finally {
+                _isPreparingContext.value = false
             }
+        }
+    }
 
+    fun stopGeneration() {
+        val wasBusy = _isPreparingContext.value == true || _isGenerating.value == true
+        generationJob?.cancel()
+        if (wasBusy) {
             _isPreparingContext.value = false
-            
-            // Reset conversation internal state to prevent context bloat
-            try { engine?.resetConversation() } catch (_: Exception) {}
-
-            startGeneration(
-                engine = engine,
-                prompt = prompt,
-                status = contextResult.generationStatus,
-                autoTitle = chatMessages.count { it.role == Role.USER } == 1,
-                firstUserMessage = input
-            )
+            _isGenerating.value = false
+            finishStoppedGeneration()
         }
     }
 
@@ -407,7 +427,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         firstUserMessage: String?
     ) {
         if (engine == null || !engine.isReady()) {
-            _statusEvent.value = StatusEvent.Error("تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده.")
+            val message = "تعذر تشغيل النموذج. جرّب نموذجًا أخف أو أعد استيراده."
+            updateAssistantMessageInternal(message, renderMarkdown = true)
+            lastAssistantResponse = message
+            saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
+            _statusEvent.value = StatusEvent.Error(message)
             return
         }
 
@@ -477,7 +501,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         } catch (cancelled: CancellationException) {
             Log.i("NabdInference", "Generation cancelled by user")
             _currentTps.postValue(0f)
-            throw cancelled
+            withContext(Dispatchers.Main) {
+                finishStoppedGeneration()
+            }
         } catch (e: Exception) {
             Log.e("NabdInference", "Generation failed", e)
             _currentTps.postValue(0f)
@@ -488,6 +514,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _isGenerating.value = false
             _streamingUpdate.value = null
         }
+    }
+
+    private fun finishStoppedGeneration() {
+        val currentText = chatMessages.getOrNull(activeAssistantMessageIndex)?.text.orEmpty().trim()
+        if (currentText.isBlank() && activeAssistantMessageIndex in chatMessages.indices) {
+            val message = "تم إيقاف التوليد."
+            updateAssistantMessageInternal(message, renderMarkdown = true)
+            lastAssistantResponse = message
+        } else if (currentText.isNotBlank()) {
+            lastAssistantResponse = currentText
+        }
+        _currentTps.value = 0f
+        _streamingUpdate.value = null
+        _statusEvent.value = StatusEvent.Info("تم إيقاف التوليد")
+        saveActiveSessionDebounced(immediate = true)
     }
 
     private fun addChatMessage(message: ChatMessage) {
