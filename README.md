@@ -18,12 +18,21 @@
 - ذاكرة نبض محلية اختيارية
 - مراقبة الأداء (RAM, TPS) لحظياً
 - Material Design 3
-## الخطط القادمة (Planned v0.7.0)
+## البحث والتطوير (GGUF Research)
 
-- **GGUF Runtime Feasibility Research:** دراسة جدوى تشغيل نماذج GGUF محلياً على Android. [خطة البحث](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md) | [مقارنة الخيارات](GGUF_ANDROID_BACKEND_COMPARISON.md)
-- **Technical Evaluation:** تقييم خيارات `llama.cpp` و `JNI` لتحديد الأثر على الحجم والأداء.
-- **Experimental MiniCPM:** التمهيد لاختبار MiniCPM في بيئة معزولة.
-- **Stable Core:** الحفاظ على Qwen كنموذج افتراضي دون أي تنفيذ Native في هذه المرحلة.
+يركز الإصدار **v0.7.0** على دراسة جدوى تشغيل نماذج GGUF:
+- **Feasibility Study:** دراسة معمقة لخيارات تشغيل GGUF على أندرويد.
+- **Backend Comparison:** مقارنة تقنية بين JNI، NDK، والمكتبات الجاهزة.
+- **Decision Report:** تقرير القرار النهائي بتأجيل الدمج المباشر لضمان الاستقرار.
+- **PoC Strategy:** اعتماد استراتيجية المشروع التجريبي المنفصل كخطوة قادمة.
+- **No Native Risk:** صفر مخاطر تقنية على النسخة الأساسية (بدون كود Native).
+
+### مستندات دراسة الجدوى:
+- [خطة البحث (Plan)](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md)
+- [مقارنة الخيارات (Comparison)](GGUF_ANDROID_BACKEND_COMPARISON.md)
+- [تقرير القرار النهائي (Decision)](GGUF_RUNTIME_DECISION_REPORT.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.7.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.7.0.md)
 
 ## تجريد محركات التشغيل (Multi-Runtime)
 ...
