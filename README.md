@@ -143,6 +143,9 @@
 ## الخطط القادمة (Planned v0.6.0)
 
 - **Experimental GGUF Runtime:** دراسة وتجهيز إمكانية تشغيل نماذج GGUF على أندرويد. [خطة العمل](GGUF_RUNTIME_PLAN.md) | [التصميم التقني](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
+  - تمت إضافة نماذج Runtime Abstraction الأساسية فقط.
+  - لم يتم تنفيذ GGUF أو JNI بعد.
+  - Qwen ما زال النموذج الافتراضي.
 - **MiniCPM Support:** التمهيد لدعم نماذج MiniCPM الخفيفة بشكل تجريبي.
 - **System Stability:** التأكد من بقاء Qwen كنموذج افتراضي دون تأثر بالتجارب الجديدة.
 - **Developer Access:** توفير أدوات تشغيل GGUF حصرياً داخل واجهة المطور (Dev Mode).
