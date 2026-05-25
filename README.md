@@ -126,7 +126,7 @@
 
 ## الخطط القادمة (Planned v0.4.0)
 
-- **Verification Engine:** محرك ذكي لتصنيف الأسئلة وتحديد مدى حاجتها للتحقق.
+- **Verification Engine:** محرك ذكي لتصنيف الأسئلة وتحديد مدى حاجتها للتحقق. [التصميم التقني](VERIFICATION_ENGINE_TECHNICAL_DESIGN.md)
 - **Source-aware answers:** إجابات مدركة للمصادر مع تنبيهات ذكية للحقائق المتغيرة.
 - **Better handling of current facts:** تحسين التعامل مع الأخبار والمسؤولين والأسعار.
 - **Safer medical, financial, and legal responses:** تعزيز معايير السلامة في التخصصات المهنية.
