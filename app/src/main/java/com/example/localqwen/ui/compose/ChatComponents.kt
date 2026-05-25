@@ -141,6 +141,13 @@ fun MessageBubble(message: ChatMessage) {
                 }
             }
 
+            if (!isUser) {
+                VerificationBadge(
+                    level = message.verificationLevel,
+                    sourceRequirement = message.sourceRequirement
+                )
+            }
+
             if (!isUser && message.text.isNotBlank()) {
                 IconButton(
                     onClick = {

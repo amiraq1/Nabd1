@@ -488,6 +488,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d("NabdVerification", "Instruction Injected: Yes")
             }
 
+            // Store verification decision in the assistant message for UI
+            withContext(Dispatchers.Main) {
+                if (activeAssistantMessageIndex != -1 && activeAssistantMessageIndex < chatMessages.size) {
+                    chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(
+                        verificationLevel = verificationDecision.level,
+                        sourceRequirement = verificationDecision.sourceRequirement
+                    )
+                    _messages.value = chatMessages.toList()
+                }
+            }
+
             val prompt = if (contextResult.context != null) {
                 NabdSystemPrompt.documentPrompt(
                     userInput = input,
