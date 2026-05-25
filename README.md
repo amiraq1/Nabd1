@@ -18,19 +18,66 @@
 - ذاكرة نبض محلية اختيارية
 - مراقبة الأداء (RAM, TPS) لحظياً
 - Material Design 3
-## الخطط القادمة (Planned v0.8.0)
+## تجربة GGUF الخارجية (External PoC)
 
-- **External GGUF PoC:** تجربة تشغيل نماذج GGUF في بيئة معزولة خارج تطبيق نبض. [خطة العمل](EXTERNAL_GGUF_POC_PLAN.md) | [قالب النتائج](EXTERNAL_GGUF_POC_RESULTS_TEMPLATE.md) | [بيئة الاختبار](EXTERNAL_GGUF_POC_TEST_ENVIRONMENT.md)
-- **Safe Benchmarking:** قياس أداء MiniCPM والتحقق من الاستقرار دون التأثير على التطبيق الأساسي.
-- **Decision Engine:** اتخاذ قرار الدمج البرمجي (Proceed/Delay) بناءً على النتائج الميدانية.
-- **Non-Invasive Testing:** الحفاظ على بقاء Qwen كنموذج افتراضي وحيد مع استمرار عزل كود Native.
+يركز الإصدار **v0.8.0** على التخطيط لتجربة GGUF خارج التطبيق:
+- **Sandbox Testing:** تجهيز خطة اختبار GGUF في بيئات معزولة (Termux, Linux).
+- **PoC Results Template:** قالب موحد لتسجيل نتائج الأداء والجودة للنماذج المجربة.
+- **Test Environment:** تحديد متطلبات القياس والـ Prompts المعيارية.
+- **Safe Evaluation:** قياس MiniCPM بعيداً عن كود تطبيق نبض الأساسي.
+- **Zero Risk:** الحفاظ على بقاء Qwen كنموذج افتراضي دون إدخال أي كود Native حالياً.
+
+### مستندات المشروع التجريبي (PoC):
+- [خطة العمل (Plan)](EXTERNAL_GGUF_POC_PLAN.md)
+- [قالب النتائج (Template)](EXTERNAL_GGUF_POC_RESULTS_TEMPLATE.md)
+- [بيئة الاختبار (Environment)](EXTERNAL_GGUF_POC_TEST_ENVIRONMENT.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.8.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.8.0.md)
 
 ## البحث والتطوير (GGUF Research)
-...
-- لا يتم إرسال المحادثات إلى خادم خارجي من داخل التطبيق.
-- أداة الخريطة تفتح تطبيق خرائط خارجي بعد تأكيد المستخدم.
-- معايير جودة الإجابة: [ANSWER_QUALITY_CRITERIA.md](ANSWER_QUALITY_CRITERIA.md)
-- سياسة الخصوصية: [PRIVACY_POLICY.md](PRIVACY_POLICY.md)
+
+يركز الإصدار **v0.7.0** على دراسة جدوى تشغيل نماذج GGUF:
+- **Feasibility Study:** دراسة معمقة لخيارات تشغيل GGUF على أندرويد.
+- **Backend Comparison:** مقارنة تقنية بين JNI، NDK، والمكتبات الجاهزة. [المقارنة](GGUF_ANDROID_BACKEND_COMPARISON.md)
+- **Decision Report:** تقرير القرار النهائي بتأجيل الدمج المباشر لضمان الاستقرار. [القرار](GGUF_RUNTIME_DECISION_REPORT.md)
+- **PoC Strategy:** اعتماد استراتيجية المشروع التجريبي المنفصل كخطوة قادمة.
+- **No Native Risk:** صفر مخاطر تقنية على النسخة الأساسية (بدون كود Native).
+
+### مستندات دراسة الجدوى:
+- [خطة البحث (Plan)](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.7.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.7.0.md)
+
+## تجريد محركات التشغيل (Multi-Runtime)
+
+يركز الإصدار **v0.6.0** على التأسيس الهندسي لمحركات متعددة:
+- **Model Runtime Interface:** واجهة موحدة لكافة المحركات (LiteRT, GGUF).
+- **Qwen Adapter:** ربط النموذج المستقر بالبنية الجديدة (Stub).
+- **GGUF Experimental Stub:** التمهيد لدعم صيغ GGUF مستقبلاً.
+- **Advanced Metrics:** قياس معياري موحد لسرعة التوليد واستهلاك الذاكرة.
+- **Safety Stubs:** جميع المحولات الجديدة معزولة وآمنة ولا تؤثر على التشغيل الحالي.
+
+### مستندات البنية التحتية للمحركات:
+- [خطة العمل (Plan)](GGUF_RUNTIME_PLAN.md)
+- [التصميم التقني (Technical Design)](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.6.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.6.0.md)
+
+## جودة النماذج والتجارب
+
+يركز الإصدار **v0.5.0** على بناء مختبر داخلي لتقييم النماذج:
+- **Model Runtime Experiments:** إطار تجريبي لمقارنة النماذج المحلية.
+- **Qwen Stability:** بقاء Qwen كنموذج افتراضي وحيد مستقر.
+- **MiniCPM Candidate:** تسجيل MiniCPM كمرشح تجريبي (غير مفعل). [توثيق MiniCPM](MINICPM_EXPERIMENTAL_CANDIDATE.md)
+- **Dev UI:** واجهة مطور داخلية لعرض إحصائيات المرشحين. [واجهة المطور](MODEL_RUNTIME_DEV_UI.md)
+- **Evaluation Framework:** مصفوفة تقييم موحدة للأداء والجودة.
+
+### مستندات تجارب النماذج:
+- [خطة العمل (Plan)](MODEL_RUNTIME_EXPERIMENTS_PLAN.md)
+- [التصميم التقني (Technical Design)](MODEL_RUNTIME_TECHNICAL_DESIGN.md)
+- [قالب التقييم (Template)](MODEL_RUNTIME_EVALUATION_TEMPLATE.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.5.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.5.0.md)
 
 ## المتطلبات
 
@@ -121,25 +168,6 @@
 3. **سؤال عن أحداث مستقبلية:**
    - **السؤال:** من فاز بكأس العالم 2030؟
    - **الإجابة المتوقعة:** لا أملك معلومة مؤكدة حول ذلك، أو هذه المعلومة تحتاج إلى تحقق حديث من مصدر موثوق (لأن الحدث لم يقع بعد).
-
-## الخطط القادمة (Planned v0.5.0)
-
-- **Model Runtime Experiments:** إطار عمل لمقارنة أداء وجودة النماذج المحلية المختلفة. [التصميم التقني](MODEL_RUNTIME_TECHNICAL_DESIGN.md) | [قالب التقييم](MODEL_RUNTIME_EVALUATION_TEMPLATE.md)
-- **Qwen vs MiniCPM:** اختبار النماذج الخفيفة لتقييم السرعة واستهلاك الذاكرة. [توثيق MiniCPM](MINICPM_EXPERIMENTAL_CANDIDATE.md)
-- **Unified Benchmarking:** قياس الجودة والسرعة والذاكرة باستخدام معايير موحدة.
-- **Safety Compliance:** ضمان التزام النماذج الجديدة بمعايير السلامة ومنع الهلوسة.
-
-## الخطط القادمة (Planned v0.6.0)
-
-- **Experimental GGUF Runtime:** دراسة وتجهيز إمكانية تشغيل نماذج GGUF على أندرويد. [خطة العمل](GGUF_RUNTIME_PLAN.md) | [التصميم التقني](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
-  - تمت إضافة نماذج Runtime Abstraction الأساسية فقط.
-  - تمت إضافة QwenRuntimeAdapter كـ Stub فقط ولا يستخدم في تدفق المحادثة الحالي.
-  - تمت إضافة GgufRuntimeAdapter كـ Stub فقط وهو غير مفعل ولا يعمل فعلياً.
-  - لا توجد مكتبات Native أو JNI حالياً؛ Qwen الحقيقي ما زال يعمل بمحركه الأصلي.
-  - Qwen ما زال النموذج الافتراضي الوحيد.
-- **MiniCPM Support:** التمهيد لدعم نماذج MiniCPM الخفيفة بشكل تجريبي.
-- **System Stability:** التأكد من بقاء Qwen كنموذج افتراضي دون تأثر بالتجارب الجديدة.
-- **Developer Access:** توفير أدوات تشغيل GGUF حصرياً داخل واجهة المطور (Dev Mode).
 
 ## المطور
 إعداد وتطوير: عمار محمد التميمي
