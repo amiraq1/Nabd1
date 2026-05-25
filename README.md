@@ -20,7 +20,7 @@
 - Material Design 3
 ## الخطط القادمة (Planned v0.8.0)
 
-- **External GGUF PoC:** تجربة تشغيل نماذج GGUF في بيئة معزولة خارج تطبيق نبض. [خطة العمل](EXTERNAL_GGUF_POC_PLAN.md) | [قالب النتائج](EXTERNAL_GGUF_POC_RESULTS_TEMPLATE.md)
+- **External GGUF PoC:** تجربة تشغيل نماذج GGUF في بيئة معزولة خارج تطبيق نبض. [خطة العمل](EXTERNAL_GGUF_POC_PLAN.md) | [قالب النتائج](EXTERNAL_GGUF_POC_RESULTS_TEMPLATE.md) | [بيئة الاختبار](EXTERNAL_GGUF_POC_TEST_ENVIRONMENT.md)
 - **Safe Benchmarking:** قياس أداء MiniCPM والتحقق من الاستقرار دون التأثير على التطبيق الأساسي.
 - **Decision Engine:** اتخاذ قرار الدمج البرمجي (Proceed/Delay) بناءً على النتائج الميدانية.
 - **Non-Invasive Testing:** الحفاظ على بقاء Qwen كنموذج افتراضي وحيد مع استمرار عزل كود Native.
