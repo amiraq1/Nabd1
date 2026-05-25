@@ -20,7 +20,7 @@
 - Material Design 3
 ## الخطط القادمة (Planned v0.7.0)
 
-- **GGUF Runtime Feasibility Research:** دراسة جدوى تشغيل نماذج GGUF محلياً على Android. [خطة البحث](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md)
+- **GGUF Runtime Feasibility Research:** دراسة جدوى تشغيل نماذج GGUF محلياً على Android. [خطة البحث](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md) | [مقارنة الخيارات](GGUF_ANDROID_BACKEND_COMPARISON.md)
 - **Technical Evaluation:** تقييم خيارات `llama.cpp` و `JNI` لتحديد الأثر على الحجم والأداء.
 - **Experimental MiniCPM:** التمهيد لاختبار MiniCPM في بيئة معزولة.
 - **Stable Core:** الحفاظ على Qwen كنموذج افتراضي دون أي تنفيذ Native في هذه المرحلة.
