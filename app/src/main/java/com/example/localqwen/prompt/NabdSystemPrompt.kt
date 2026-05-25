@@ -154,18 +154,25 @@ object NabdSystemPrompt {
         userInput: String, 
         historyContext: String = "", 
         memoryContext: String = "",
-        responseMode: String = "balanced"
+        responseMode: String = "balanced",
+        verificationInstruction: String? = null
     ): String {
         val memorySection = if (memoryContext.isBlank()) {
             ""
         } else {
             "\n\nسياق الذاكرة:\n$memoryContext"
         }
+
+        val verificationSection = if (verificationInstruction != null) {
+            "\n\n$verificationInstruction"
+        } else {
+            ""
+        }
         
         val system = """
             ${baseIdentityPrompt(responseMode)}
             أجب مباشرة على رسالة المستخدم.
-$memorySection
+$memorySection$verificationSection
 
             ---
             $NABD_ANSWER_QUALITY_GUARD
@@ -179,8 +186,15 @@ $memorySection
         contextChunks: String,
         answerLengthInstruction: String,
         historyContext: String = "",
-        responseMode: String = "balanced"
+        responseMode: String = "balanced",
+        verificationInstruction: String? = null
     ): String {
+        val verificationSection = if (verificationInstruction != null) {
+            "\n\n$verificationInstruction"
+        } else {
+            ""
+        }
+
         val system = """
             ${baseIdentityPrompt(responseMode)}
             تعليمات مهمة للمستندات:
@@ -188,6 +202,7 @@ $memorySection
             - لا تستخدم معلوماتك الخارجية.
             - إذا لم تجد الإجابة في السياق، قل بوضوح: "${DocumentMessageFormatter.insufficientDocumentAnswerMessage()}"
             - $answerLengthInstruction
+$verificationSection
 
             سياق المستند المتوفر:
             $contextChunks

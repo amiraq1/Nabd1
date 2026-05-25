@@ -24,6 +24,8 @@ import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.engine.NabdInferenceEngine
 import com.example.localqwen.prompt.NabdSystemPrompt
+import com.example.localqwen.verification.VerificationClassifier
+import com.example.localqwen.verification.VerificationPromptBuilder
 import com.example.localqwen.rag.EmbeddingEngine
 import com.example.localqwen.rag.EmbeddingStore
 import com.example.localqwen.rag.RagMode
@@ -473,20 +475,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val historyContext = buildChatHistoryPrompt(limit = 6)
 
+            // Verification Engine Integration
+            val verificationDecision = VerificationClassifier.classify(input)
+            val verificationInstruction = if (VerificationPromptBuilder.shouldInjectInstruction(verificationDecision)) {
+                VerificationPromptBuilder.buildInstruction(verificationDecision)
+            } else null
+            
+            Log.d("NabdVerification", "Query: $input")
+            Log.d("NabdVerification", "Level: ${verificationDecision.level}")
+            Log.d("NabdVerification", "Reason: ${verificationDecision.reason}")
+            if (verificationInstruction != null) {
+                Log.d("NabdVerification", "Instruction Injected: Yes")
+            }
+
             val prompt = if (contextResult.context != null) {
                 NabdSystemPrompt.documentPrompt(
                     userInput = input,
                     contextChunks = contextResult.context,
                     answerLengthInstruction = documentAnswerLengthInstruction,
                     historyContext = historyContext,
-                    responseMode = responseMode
+                    responseMode = responseMode,
+                    verificationInstruction = verificationInstruction
                 )
             } else {
                 NabdSystemPrompt.normalChatPrompt(
                     userInput = input, 
                     historyContext = historyContext, 
                     memoryContext = memoryContext,
-                    responseMode = responseMode
+                    responseMode = responseMode,
+                    verificationInstruction = verificationInstruction
                 )
             }
 
