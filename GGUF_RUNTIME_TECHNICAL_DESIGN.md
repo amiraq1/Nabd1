@@ -43,14 +43,18 @@ interface ModelRuntimeInterface {
 /** البيانات المطلوبة لعملية التوليد. */
 data class RuntimeGenerationRequest(
     val prompt: String,
-    val temperature: Float = 0.7f,
+    val systemPrompt: String? = null,
     val maxTokens: Int = 512,
-    val stopSequences: List<String> = emptyList()
+    val temperature: Float = 0.7f,
+    val topP: Float = 0.9f,
+    val stream: Boolean = true
 )
 
 /** وحدة النص المتدفقة من المحرك. */
 data class RuntimeGenerationChunk(
     val text: String,
+    val tokenIndex: Int? = null,
+    val isFinal: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -61,11 +65,23 @@ data class RuntimeGenerationResult(
     val error: RuntimeError? = null
 )
 
+/** تعريف أخطاء محركات التشغيل. */
+sealed class RuntimeError {
+    data class ModelFileMissing(val path: String) : RuntimeError()
+    data class UnsupportedFormat(val extension: String) : RuntimeError()
+    data class NativeLibraryMissing(val libraryName: String) : RuntimeError()
+    data class OutOfMemory(val requiredMb: Long?) : RuntimeError()
+    data class GenerationFailed(val message: String) : RuntimeError()
+    data class Unknown(val message: String) : RuntimeError()
+}
+
 /** مؤشرات أداء المحرك. */
 data class RuntimeMetrics(
-    val timeToFirstTokenMs: Long,
-    val tokensPerSecond: Double,
-    val memoryUsageMb: Long
+    val timeToFirstTokenMs: Long?,
+    val totalGenerationTimeMs: Long? = null,
+    val tokensGenerated: Int? = null,
+    val tokensPerSecond: Double? = null,
+    val peakMemoryMb: Long? = null
 )
 ```
 
@@ -93,4 +109,5 @@ data class RuntimeMetrics(
 
 ---
 **تاريخ التصميم:** 25 مايو 2026
-**المرحلة:** تفصيل تقني نظري (لا يوجد تنفيذ برمجي Native في هذه المرحلة).
+**المرحلة:** تفصيل تقني نظري
+**حالة التنفيذ البرمجي:** تمت إضافة Adapters شكلية (Stubs) آمنة فقط لتأسيس البنية التحتية دون تفعيل أي كود Native أو JNI.
