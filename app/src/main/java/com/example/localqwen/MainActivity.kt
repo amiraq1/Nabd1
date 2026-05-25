@@ -84,8 +84,9 @@ class MainActivity : ComponentActivity() {
             this,
             modelDescription = modelViewModel.selectedModel.value?.displayName ?: "",
             modelStatus = modelViewModel.currentModelStatusLabel(),
-            modelE2bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[0]),
-            modelE4bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[1]),
+            modelGemma3Status = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[0]),
+            modelE2bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[1]),
+            modelE4bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[2]),
             documentAnswerLength = chatViewModel.currentDocumentAnswerLength(),
             ragSearchMode = modelViewModel.currentRagMode().name.lowercase(),
             embeddingBackend = modelViewModel.currentEmbeddingBackend().name.lowercase(),
@@ -103,12 +104,16 @@ class MainActivity : ComponentActivity() {
         val value = data.getStringExtra(SettingsActivity.EXTRA_VALUE)
 
         when (action) {
-            SettingsActivity.ACTION_MANAGE_MODEL_E2B -> {
+            SettingsActivity.ACTION_MANAGE_MODEL_GEMMA3 -> {
                 val model = ModelManager.SUPPORTED_MODELS[0]
                 showModelManagementDialog(model)
             }
-            SettingsActivity.ACTION_MANAGE_MODEL_E4B -> {
+            SettingsActivity.ACTION_MANAGE_MODEL_E2B -> {
                 val model = ModelManager.SUPPORTED_MODELS[1]
+                showModelManagementDialog(model)
+            }
+            SettingsActivity.ACTION_MANAGE_MODEL_E4B -> {
+                val model = ModelManager.SUPPORTED_MODELS[2]
                 showModelManagementDialog(model)
             }
             SettingsActivity.ACTION_IMPORT_VISION_MODEL -> showModelManagementDialog(ModelManager.VISION_MODEL)
@@ -167,6 +172,10 @@ class MainActivity : ComponentActivity() {
             SettingsActivity.ACTION_OPEN_CHAT_HISTORY -> showInfoDialog("سجل المحادثات", "سجل المحادثات محفوظ محليًا. يمكن تطوير شاشة تنقل بين الجلسات كتحسين لاحق.")
             SettingsActivity.ACTION_LOCAL_MODEL_MANAGER -> showReadinessDialog()
             SettingsActivity.ACTION_BACKGROUND_TASKS -> showInfoDialog("مهام الخلفية", "تعمل معالجة PDF عبر WorkManager عند إرفاق ملف PDF.")
+            SettingsActivity.ACTION_TRIGGER_TEST_REPORT -> {
+                chatViewModel.triggerTestReport()
+                Toast.makeText(this, "جاري إنشاء تقرير اختبار...", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

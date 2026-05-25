@@ -1,31 +1,46 @@
 package com.example.localqwen.ui.compose
 
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.localqwen.ui.compose.NabdPulseButton
+import com.example.localqwen.R
 
-@OptIn(ExperimentalMaterial3Api::class)
+// New Soft UI Colors for Nabd v0.2.0
+private val NabdSoftBg = Color(0xFFFFF9F9)
+private val NabdSoftPink = Color(0xFFFF5A5F)
+private val NabdCardBg = Color(0xFFFFFFFF)
+private val NabdTextPrimary = Color(0xFF1A1A1A)
+private val NabdTextSecondary = Color(0xFF757575)
+private val NabdSuccessGreen = Color(0xFF4CAF50)
+
 @Composable
 fun NabdWelcomeScreen(
     onSendMessage: (String) -> Unit = {},
@@ -34,183 +49,474 @@ fun NabdWelcomeScreen(
     onShowHistory: () -> Unit = {},
     onShowMenu: () -> Unit = {},
     onModelBadgeClick: () -> Unit = {},
-    activeModelName: String = "Gemma-2B (Local)"
+    onSetupModel: () -> Unit = {},
+    onLoadModel: () -> Unit = {},
+    activeModelName: String = "Gemma",
+    modelState: com.example.localqwen.viewmodel.ModelState = com.example.localqwen.viewmodel.ModelState.NotImported
 ) {
     var textInput by remember { mutableStateOf("") }
+    val scrollState = rememberScrollState()
 
-
-    Scaffold(
-        containerColor = Color(0xFFF9F9F9),
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "المساعد الافتراضي",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF1A1A1A)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onShowHistory) {
-                        Icon(Icons.Default.Refresh, contentDescription = "History", tint = Color(0xFF333333))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onShowMenu) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color(0xFF333333))
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Box(
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NabdSoftBg)
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .verticalScroll(scrollState)
+                .padding(bottom = 100.dp) // Space for composer
         ) {
+            NabdHomeHeader(onShowMenu = onShowMenu)
             
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(bottom = 80.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(140.dp)
-                        .background(
-                            color = Color(0xFFFF5A5F),
-                            shape = RoundedCornerShape(32.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "نبض",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "مرحباً بك في تطبيق نبض!",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1A1A1A),
-                    textAlign = TextAlign.Center
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            WelcomeSection(userName = "عمار")
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            QuickActionsGrid(
+                onDocumentClick = onAddAttachment,
+                onImageClick = onAnalyzeImage,
+                onChatClick = { onSendMessage("مرحباً نبض، كيف حالك؟") },
+                onSettingsClick = onModelBadgeClick
+            )
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            PulseHeroSection()
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            if (modelState is com.example.localqwen.viewmodel.ModelState.NotImported) {
+                ModelSetupCard(onImportClick = onSetupModel)
+            } else {
+                ModelStatusCard(
+                    modelName = activeModelName,
+                    modelState = modelState,
+                    onClick = onModelBadgeClick,
+                    onLoadClick = onLoadModel
                 )
             }
+        }
 
-            Column(
+        // Bottom Composer
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        ) {
+            NabdHomeComposer(
+                value = textInput,
+                onValueChange = { textInput = it },
+                onSend = {
+                    if (textInput.isNotBlank()) {
+                        onSendMessage(textInput)
+                        textInput = ""
+                    }
+                },
+                onAttach = onAddAttachment,
+                onImage = onAnalyzeImage
+            )
+        }
+    }
+}
+
+@Composable
+fun NabdHomeHeader(onShowMenu: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onShowMenu,
+            modifier = Modifier
+                .size(44.dp)
+                .background(Color.White, CircleShape)
+                .shadow(2.dp, CircleShape)
+        ) {
+            Icon(Icons.Default.Menu, contentDescription = "القائمة", tint = NabdSoftPink)
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_nabd),
+                contentDescription = null,
+                tint = NabdSoftPink,
+                modifier = Modifier.size(32.dp)
+            )
+            Text(
+                text = "نبض",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = NabdTextPrimary
+            )
+            Text(
+                text = "مساعدك الذكي المحلي",
+                fontSize = 10.sp,
+                color = NabdTextSecondary
+            )
+        }
+
+        // Dummy box to balance the header (RTL)
+        Box(modifier = Modifier.size(44.dp))
+    }
+}
+
+@Composable
+fun WelcomeSection(userName: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "أهلاً $userName!",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Black,
+            color = NabdTextPrimary,
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Decorative Pulse Line
+        Canvas(modifier = Modifier.size(width = 60.dp, height = 4.dp)) {
+            val width = size.width
+            val height = size.height
+            drawRoundRect(
+                color = NabdSoftPink,
+                size = size,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(height / 2)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "أنا مساعدك الذكي نبض.",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            color = NabdTextPrimary,
+            textAlign = TextAlign.Center
+        )
+        
+        Text(
+            text = "اسألني أي شيء، أنا هنا لمساعدتك.",
+            fontSize = 14.sp,
+            color = NabdTextSecondary,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun QuickActionsGrid(
+    onDocumentClick: () -> Unit,
+    onImageClick: () -> Unit,
+    onChatClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            QuickActionCard(
+                title = "اسأل عن مستند",
+                description = "لخّص أو اسأل عن أي مستند",
+                icon = Icons.Default.Description,
+                modifier = Modifier.weight(1f),
+                onClick = onDocumentClick
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            QuickActionCard(
+                title = "حلّل صورة",
+                description = "افهم المحتوى داخل الصور",
+                icon = Icons.Default.Image,
+                modifier = Modifier.weight(1f),
+                onClick = onImageClick
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            QuickActionCard(
+                title = "ابدأ محادثة",
+                description = "محادثة حرة مع نبض",
+                icon = Icons.Default.ChatBubble,
+                modifier = Modifier.weight(1f),
+                onClick = onChatClick
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            QuickActionCard(
+                title = "إعداد النموذج",
+                description = "تحكم في إعدادات النموذج",
+                icon = Icons.Default.Settings,
+                modifier = Modifier.weight(1f),
+                onClick = onSettingsClick
+            )
+        }
+    }
+}
+
+@Composable
+fun QuickActionCard(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .height(140.dp)
+            .shadow(4.dp, RoundedCornerShape(24.dp)),
+        color = NabdCardBg,
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .size(40.dp)
+                    .background(NabdSoftPink.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
+                Icon(icon, contentDescription = null, tint = NabdSoftPink, modifier = Modifier.size(20.dp))
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = NabdTextPrimary,
+                textAlign = TextAlign.Center,
+                style = TextStyle(textDirection = TextDirection.Rtl)
+            )
+            Text(
+                text = description,
+                fontSize = 10.sp,
+                color = NabdTextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 14.sp,
+                style = TextStyle(textDirection = TextDirection.Rtl)
+            )
+        }
+    }
+}
+
+@Composable
+fun PulseHeroSection() {
+    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.1f,
+        targetValue = 0.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Alpha"
+    )
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "Scale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Animated Rings
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .graphicsLayer(scaleX = pulseScale, scaleY = pulseScale, alpha = 1f - pulseScale / 1.5f)
+                .border(2.dp, NabdSoftPink, CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .graphicsLayer(scaleX = pulseScale * 0.8f, scaleY = pulseScale * 0.8f, alpha = pulseAlpha)
+                .background(NabdSoftPink.copy(alpha = 0.05f), CircleShape)
+        )
+        
+        // Center Icon
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .shadow(8.dp, CircleShape)
+                .background(Color.White, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_nabd),
+                contentDescription = null,
+                tint = NabdSoftPink,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ModelStatusCard(
+    modelName: String, 
+    modelState: com.example.localqwen.viewmodel.ModelState,
+    onClick: () -> Unit,
+    onLoadClick: () -> Unit
+) {
+    val isReady = modelState is com.example.localqwen.viewmodel.ModelState.Ready
+    val isIdle = modelState is com.example.localqwen.viewmodel.ModelState.Idle
+    val isLoading = modelState is com.example.localqwen.viewmodel.ModelState.Loading
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier
+                .shadow(2.dp, RoundedCornerShape(32.dp)),
+            color = NabdCardBg,
+            shape = RoundedCornerShape(32.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = textInput,
-                        onValueChange = { textInput = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(54.dp),
-                        placeholder = { Text("أرسل رسالة...", color = Color.Gray, fontSize = 15.sp) },
-                        shape = CircleShape,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFFF0F0F0),
-                            unfocusedContainerColor = Color(0xFFF0F0F0),
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    NabdPulseButton(
-                        onClick = {
-                            if (textInput.isNotBlank()) {
-                                onSendMessage(textInput)
-                                textInput = ""
-                            }
-                        },
-                        isActive = textInput.isNotBlank(),
-                        isEnabled = true,
-                        modifier = Modifier.size(50.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    FloatingActionButton(
-                        onClick = onAnalyzeImage,
-                        modifier = Modifier.size(50.dp),
-                        shape = CircleShape,
-                        containerColor = Color(0xFFF0F0F0),
-                        contentColor = Color(0xFF333333),
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                    ) {
-                        Icon(Icons.Default.Image, contentDescription = "Analyze Image")
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    FloatingActionButton(
-                        onClick = onAddAttachment,
-                        modifier = Modifier.size(50.dp),
-                        shape = CircleShape,
-                        containerColor = Color(0xFFF0F0F0),
-                        contentColor = Color(0xFF333333),
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Attachment")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
                     Icon(
-                        Icons.Default.Build, 
-                        contentDescription = "Settings", 
-                        tint = Color.Gray,
+                        if (isReady) Icons.Default.CheckCircle else Icons.Default.Info,
+                        contentDescription = null,
+                        tint = if (isReady) NabdSuccessGreen else Color.Gray,
                         modifier = Modifier.size(16.dp)
                     )
-                    
                     Spacer(modifier = Modifier.width(8.dp))
-                    
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(12.dp))
-                            .border(1.dp, Color(0xFFC8E6C9), shape = RoundedCornerShape(12.dp))
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onModelBadgeClick() }
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    Text(
+                        text = modelName,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NabdTextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = when {
+                            isReady -> "• جاهز • آمن • محلي"
+                            isLoading -> "جاري التشغيل..."
+                            isIdle -> "محمل محلياً • غير مشغل"
+                            else -> "غير جاهز"
+                        },
+                        fontSize = 10.sp,
+                        color = if (isReady) NabdSuccessGreen else Color.Gray,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (isIdle || isLoading) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onLoadClick,
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NabdSoftPink),
+                        enabled = !isLoading
                     ) {
-                        Text(
-                            text = activeModelName,
-                            color = Color(0xFF2E7D32),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("جاري البدء...", fontSize = 12.sp)
+                        } else {
+                            Text("تشغيل النموذج", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NabdHomeComposer(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAttach: () -> Unit,
+    onImage: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(12.dp, RoundedCornerShape(32.dp)),
+        color = Color.White,
+        shape = RoundedCornerShape(32.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onAttach) {
+                Icon(Icons.Default.AttachFile, contentDescription = "إرفاق ملف", tint = NabdTextSecondary)
+            }
+            IconButton(onClick = onImage) {
+                Icon(Icons.Default.Image, contentDescription = "صورة", tint = NabdTextSecondary)
+            }
+            
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("اكتب رسالتك...", fontSize = 14.sp) },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                textStyle = TextStyle(
+                    fontSize = 15.sp,
+                    textDirection = TextDirection.Rtl
+                ),
+                maxLines = 3
+            )
+
+            val sendEnabled = value.isNotBlank()
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(if (sendEnabled) NabdSoftPink else Color(0xFFEEEEEE))
+                    .clickable(enabled = sendEnabled) { onSend() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Send, 
+                    contentDescription = "إرسال", 
+                    tint = if (sendEnabled) Color.White else Color.Gray,
+                    modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f)
+                )
             }
         }
     }

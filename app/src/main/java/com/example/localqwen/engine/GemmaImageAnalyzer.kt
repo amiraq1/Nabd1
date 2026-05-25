@@ -18,8 +18,15 @@ import java.util.UUID
 class GemmaImageAnalyzer(private val context: Context) {
 
     private var engine: LiteRtLmInferenceEngine? = null
+    
+    var currentStage: String = "idle"
+        private set
+    
+    var lastTempImagePath: String? = null
+        private set
 
     suspend fun loadModel(modelPath: String) {
+        currentStage = "loadModel"
         Log.d("GemmaImageAnalyzer", "Starting model load from: $modelPath")
         withContext(Dispatchers.IO) {
             try {
@@ -50,10 +57,12 @@ class GemmaImageAnalyzer(private val context: Context) {
             }
 
             // 1. Load and resize image
+            currentStage = "imageProcessing"
             Log.d("GemmaImageAnalyzer", "Starting image processing for URI: $imageUri")
             val resizedFile = resizeImageToTempFile(imageUri, 768)
                 ?: throw IllegalArgumentException("Could not process image")
 
+            lastTempImagePath = resizedFile.absolutePath
             Log.d("GemmaImageAnalyzer", "Temp image file ready at: ${resizedFile.absolutePath}")
 
             // 2. Prepare the prompt in Arabic
@@ -69,27 +78,33 @@ class GemmaImageAnalyzer(private val context: Context) {
                 $question
             """.trimIndent()
 
+            currentStage = "inference"
             Log.d("GemmaImageAnalyzer", "Starting vision inference with prompt: $question")
 
             // 3. Generate vision response
             var firstChunk = true
             val flow = engine!!.generateVision(resizedFile.absolutePath, prompt)
 
-            flow.onStart { Log.d("GemmaImageAnalyzer", "Inference flow started") }
+            flow.onStart { 
+                Log.d("GemmaImageAnalyzer", "Inference flow started")
+                currentStage = "firstChunk"
+            }
                 .onEach { 
                     if (firstChunk) {
                         Log.d("GemmaImageAnalyzer", "Received first chunk/token from model")
                         firstChunk = false
+                        currentStage = "streaming"
                     }
                 }
                 .onCompletion { 
                     Log.d("GemmaImageAnalyzer", "Inference completed successfully")
+                    currentStage = "completed"
                     // Optional: delete temp file
                     if (resizedFile.exists()) resizedFile.delete()
+                    lastTempImagePath = null
                 }
         }
     }
-
     private fun resizeImageToTempFile(uri: Uri, maxDimension: Int): File? {
         try {
             val inputStream = context.contentResolver.openInputStream(uri) ?: return null

@@ -21,7 +21,7 @@ import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,11 +29,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -257,23 +259,10 @@ fun ChatInputBar(
 ) {
     var text by remember { mutableStateOf("") }
     
-    val starters = listOf(
-        "اقترح علي فكرة تطبيق مميزة",
-        "اكتب لي كود كوتلن بسيط",
-        "كيف أحسن إنتاجيتي اليوم؟",
-        "لخص لي أهمية الذكاء الاصطناعي المحلي",
-        "أخبرني نكتة برمجية"
-    )
-
-    val handlePulseClick = {
-        if (text.isNotBlank()) {
-            if (isEnabled) {
-                onSendMessage(text)
-                text = ""
-            }
-        } else {
-            // Field is empty, provide a random starter
-            text = starters.random()
+    val handleSend = {
+        if (text.isNotBlank() && isEnabled) {
+            onSendMessage(text)
+            text = ""
         }
     }
 
@@ -281,54 +270,69 @@ fun ChatInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
+            .shadow(8.dp, RoundedCornerShape(32.dp))
             .alpha(if (isEnabled) 1f else 0.7f),
-        shape = RoundedCornerShape(28.dp),
-        color = Color(0xFFF5F5F5),
-        shadowElevation = 0.dp
+        shape = RoundedCornerShape(32.dp),
+        color = Color.White
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onAddAttachment, enabled = isEnabled) {
-                Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF666666))
+                Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF757575))
             }
             
             IconButton(onClick = onAnalyzeImage, enabled = isEnabled) {
-                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = Color(0xFF666666))
+                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = Color(0xFF757575))
             }
 
             BasicTextField(
-
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 12.dp),
                 enabled = isEnabled,
-                textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF1A1A1A)),
+                textStyle = TextStyle(
+                    fontSize = 16.sp, 
+                    color = Color(0xFF1A1A1A),
+                    textDirection = TextDirection.Rtl
+                ),
                 decorationBox = { innerTextField ->
                     if (text.isEmpty()) {
-                        Text("اكتب رسالة...", color = Color.Gray, fontSize = 16.sp)
+                        Text(
+                            "اكتب رسالتك...", 
+                            color = Color.Gray, 
+                            fontSize = 16.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Start,
+                            style = TextStyle(textDirection = TextDirection.Rtl)
+                        )
                     }
                     innerTextField()
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { 
-                    if (text.isNotBlank() && isEnabled) {
-                        onSendMessage(text)
-                        text = ""
-                    }
-                })
+                keyboardActions = KeyboardActions(onSend = { handleSend() })
             )
 
-            NabdPulseButton(
-                onClick = handlePulseClick,
-                isActive = text.isNotBlank(),
-                isEnabled = isEnabled,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            val sendEnabled = isEnabled && text.isNotBlank()
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(if (sendEnabled) Color(0xFFFF5A5F) else Color(0xFFEEEEEE))
+                    .clickable(enabled = sendEnabled) { handleSend() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Send, 
+                    contentDescription = "إرسال", 
+                    tint = if (sendEnabled) Color.White else Color.Gray,
+                    modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f)
+                )
+            }
         }
     }
 }

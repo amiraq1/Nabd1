@@ -31,7 +31,6 @@ import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.rag.TextChunker
 import com.example.localqwen.engine.GemmaImageAnalyzer
-// ... keep existing imports ...
 import com.example.localqwen.work.PdfProcessingWorker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -49,16 +48,40 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.example.localqwen.data.SecurePreferences
+import com.example.localqwen.diagnostics.NabdDiagnosticLogger
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
-// ... existing code ...
 
     private var imageAnalyzer: GemmaImageAnalyzer? = null
+    
+    private val _lastErrorReportFile = MutableLiveData<File?>(null)
+    val lastErrorReportFile: LiveData<File?> = _lastErrorReportFile
+
+    fun clearErrorReport() {
+        _lastErrorReportFile.value = null
+    }
+
+    fun triggerTestReport() {
+        val context = getApplication<Application>()
+        val reportFile = NabdDiagnosticLogger.writeGemmaErrorReport(
+            context,
+            NabdDiagnosticLogger.GemmaErrorContext(
+                stage = "manual_test",
+                modelPath = "test_path/model.litertlm",
+                tempImagePath = "test_path/temp.jpg",
+                promptLength = 10,
+                exception = Exception("هذا تقرير اختبار يدوي للتأكد من نظام التشخيص")
+            ),
+            isTest = true
+        )
+        _lastErrorReportFile.value = reportFile
+    }
 
     fun analyzeImageWithGemma(uri: Uri, question: String) {
         val context = getApplication<Application>()
         _isGenerating.value = true
         _statusEvent.value = StatusEvent.Info("جاري تحليل الصورة...")
+        _lastErrorReportFile.value = null
         
         // Add the user message immediately
         addChatMessage(ChatMessage(role = Role.USER, text = "[صورة مرفقة]\n$question"))
@@ -67,20 +90,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = true)
         
         viewModelScope.launch {
+            var modelPath = "unknown"
             try {
                 if (imageAnalyzer == null) {
                     imageAnalyzer = GemmaImageAnalyzer(context)
                     // Ensure the model path is valid. 
-                    // This assumes the user has imported the model or put it in context.filesDir/models/...
                     val modelManager = com.example.localqwen.model.ModelManager(context)
                     val model = modelManager.getModelById("gemma_3n_e2b_it")
                     if (model == null || !modelManager.isModelImported(model.id)) {
-                        _statusEvent.value = StatusEvent.Error("النموذج المطلوب (gemma-3n-E2B-it) غير متوفر.")
+                        _statusEvent.value = StatusEvent.Error("النموذج المطلوب غير متوفر.")
                         _isGenerating.value = false
                         return@launch
                     }
-                    val path = modelManager.modelPath(model)
-                    imageAnalyzer?.loadModel(path)
+                    modelPath = modelManager.modelPath(model)
+                    imageAnalyzer?.loadModel(modelPath)
                 }
                 
                 val output = StringBuilder()
@@ -101,8 +124,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _statusEvent.value = StatusEvent.Success("اكتمل التحليل")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Image analysis failed", e)
-                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء تحليل الصورة.")
-                val updatedMessage = assistantMessage.copy(text = "حدث خطأ أثناء تحليل الصورة.")
+                
+                // Generate technical report
+                val reportFile = NabdDiagnosticLogger.writeGemmaErrorReport(
+                    context,
+                    NabdDiagnosticLogger.GemmaErrorContext(
+                        stage = imageAnalyzer?.currentStage ?: "init",
+                        modelPath = modelPath,
+                        tempImagePath = imageAnalyzer?.lastTempImagePath,
+                        promptLength = question.length,
+                        exception = e
+                    )
+                )
+                _lastErrorReportFile.value = reportFile
+                
+                val errorMsg = if (reportFile != null) 
+                    "تعذر تشغيل النموذج. تم إنشاء ملف تشخيص يمكنك مشاركته للمساعدة في الإصلاح." 
+                    else "حدث خطأ أثناء تحليل الصورة."
+                
+                _statusEvent.value = StatusEvent.Error(errorMsg)
+                val updatedMessage = assistantMessage.copy(text = "⚠️ $errorMsg")
                 chatMessages[chatMessages.lastIndex] = updatedMessage
                 _messages.value = chatMessages.toList()
             } finally {

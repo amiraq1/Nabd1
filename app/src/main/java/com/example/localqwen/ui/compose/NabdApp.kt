@@ -34,6 +34,16 @@ import com.example.localqwen.viewmodel.MemoryViewModel
 import com.example.localqwen.viewmodel.StatusEvent
 import com.example.localqwen.viewmodel.MemoryCommandResult
 
+import androidx.compose.ui.platform.LocalContext
+import com.example.localqwen.diagnostics.NabdDiagnosticLogger
+import android.content.Intent
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.widget.Toast
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NabdApp(
@@ -42,6 +52,84 @@ fun NabdApp(
     memoryViewModel: MemoryViewModel,
     onOpenSettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val lastErrorReport by chatViewModel.lastErrorReportFile.observeAsState()
+    
+    if (lastErrorReport != null) {
+        AlertDialog(
+            onDismissRequest = { chatViewModel.clearErrorReport() },
+            title = { 
+                Text(
+                    "تقرير تشخيص Gemma 3",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Right,
+                    style = TextStyle(textDirection = TextDirection.Rtl)
+                ) 
+            },
+            text = { 
+                Column {
+                    Text(
+                        "تعذر تشغيل النموذج. تم حفظ تقرير تقني مفصل في المسار التالي:",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Right,
+                        style = TextStyle(textDirection = TextDirection.Rtl)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SelectionContainer {
+                        Text(
+                            lastErrorReport!!.absolutePath,
+                            fontSize = 11.sp,
+                            color = Color.DarkGray,
+                            modifier = Modifier
+                                .background(Color(0xFFF0F0F0), RoundedCornerShape(4.dp))
+                                .padding(8.dp)
+                                .fillMaxWidth()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "يمكنك مشاركة هذا الملف مع المطورين للمساعدة في حل المشكلة.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Right,
+                        style = TextStyle(textDirection = TextDirection.Rtl)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        val uri = NabdDiagnosticLogger.getLogFileUri(context, lastErrorReport!!)
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "مشاركة تقرير نبض"))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "فشل بدء المشاركة: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }) {
+                    Text("مشاركة الملف")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(lastErrorReport!!.absolutePath))
+                        Toast.makeText(context, "تم نسخ المسار", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("نسخ المسار")
+                    }
+                    TextButton(onClick = { chatViewModel.clearErrorReport() }) {
+                        Text("إغلاق")
+                    }
+                }
+            }
+        )
+    }
     val messages by chatViewModel.messages.observeAsState(emptyList())
     val isGenerating by chatViewModel.isGenerating.observeAsState(false)
     val isProcessingDocument by chatViewModel.isProcessingDocument.observeAsState(false)
@@ -73,6 +161,32 @@ fun NabdApp(
     LaunchedEffect(currentTps) {
         if (currentTps > 0) {
             modelViewModel.addTpsRecord(currentTps)
+        }
+    }
+
+    val setupState by modelViewModel.setupState.observeAsState(com.example.localqwen.viewmodel.ModelSetupState.Idle)
+
+    val modelPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { modelViewModel.setupModel(it) }
+    }
+
+    if (setupState !is com.example.localqwen.viewmodel.ModelSetupState.Idle) {
+        ModalBottomSheet(
+            onDismissRequest = { modelViewModel.resetSetupState() },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = Color.White
+        ) {
+            ModelSetupWizardSheet(
+                setupState = setupState!!,
+                onDismiss = { modelViewModel.resetSetupState() },
+                onRetry = { 
+                    modelViewModel.resetSetupState()
+                    modelPickerLauncher.launch("*/*") 
+                },
+                onStartChat = { modelViewModel.resetSetupState() }
+            )
         }
     }
 
@@ -182,11 +296,15 @@ fun NabdApp(
 
         NabdWelcomeScreen(
             activeModelName = selectedModel?.displayName ?: "Gemma",
+            modelState = modelState ?: ModelState.NotImported,
             onSendMessage = handleSendMessage,
             onAddAttachment = { documentPickerLauncher.launch("*/*") },
+            onAnalyzeImage = { imagePickerLauncher.launch("image/*") },
             onShowHistory = { showMemoryDialog = true },
             onShowMenu = onOpenSettings,
-            onModelBadgeClick = { showModelSheet = true }
+            onModelBadgeClick = { showModelSheet = true },
+            onSetupModel = { modelPickerLauncher.launch("*/*") },
+            onLoadModel = { modelViewModel.loadModel() }
         )
 
         if (showMemoryDialog) {
