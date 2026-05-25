@@ -18,25 +18,22 @@
 - ذاكرة نبض محلية اختيارية
 - مراقبة الأداء (RAM, TPS) لحظياً
 - Material Design 3
+## تجريد محركات التشغيل (Multi-Runtime)
+
+يركز الإصدار **v0.6.0** على التأسيس الهندسي لمحركات متعددة:
+- **Model Runtime Interface:** واجهة موحدة لكافة المحركات (LiteRT, GGUF).
+- **Qwen Adapter:** ربط النموذج المستقر بالبنية الجديدة (Stub).
+- **GGUF Experimental Stub:** التمهيد لدعم صيغ GGUF مستقبلاً.
+- **Advanced Metrics:** قياس معياري موحد لسرعة التوليد واستهلاك الذاكرة.
+- **Safety Stubs:** جميع المحولات الجديدة معزولة وآمنة ولا تؤثر على التشغيل الحالي.
+
+### مستندات البنية التحتية للمحركات:
+- [خطة العمل (Plan)](GGUF_RUNTIME_PLAN.md)
+- [التصميم التقني (Technical Design)](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
+- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.6.0.md)
+- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.6.0.md)
+
 ## جودة النماذج والتجارب
-
-يركز الإصدار **v0.5.0** على بناء مختبر داخلي لتقييم النماذج:
-- **Model Runtime Experiments:** إطار تجريبي لمقارنة النماذج المحلية.
-- **Qwen Stability:** بقاء Qwen كنموذج افتراضي وحيد مستقر.
-- **MiniCPM Candidate:** تسجيل MiniCPM كمرشح تجريبي (غير مفعل).
-- **Dev UI:** واجهة مطور داخلية لعرض إحصائيات المرشحين.
-- **Evaluation Framework:** مصفوفة تقييم موحدة للأداء والجودة.
-
-### مستندات تجارب النماذج:
-- [خطة العمل (Plan)](MODEL_RUNTIME_EXPERIMENTS_PLAN.md)
-- [التصميم التقني (Technical Design)](MODEL_RUNTIME_TECHNICAL_DESIGN.md)
-- [قالب التقييم (Template)](MODEL_RUNTIME_EVALUATION_TEMPLATE.md)
-- [واجهة المطور (Dev UI)](MODEL_RUNTIME_DEV_UI.md)
-- [توثيق مرشح MiniCPM](MINICPM_EXPERIMENTAL_CANDIDATE.md)
-- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.5.0.md)
-- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.5.0.md)
-
-## الخصوصية والجودة
 ...
 - لا يتم إرسال المحادثات إلى خادم خارجي من داخل التطبيق.
 - أداة الخريطة تفتح تطبيق خرائط خارجي بعد تأكيد المستخدم.
