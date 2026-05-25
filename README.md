@@ -18,22 +18,14 @@
 - ذاكرة نبض محلية اختيارية
 - مراقبة الأداء (RAM, TPS) لحظياً
 - Material Design 3
+## الخطط القادمة (Planned v0.7.0)
+
+- **GGUF Runtime Feasibility Research:** دراسة جدوى تشغيل نماذج GGUF محلياً على Android. [خطة البحث](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md)
+- **Technical Evaluation:** تقييم خيارات `llama.cpp` و `JNI` لتحديد الأثر على الحجم والأداء.
+- **Experimental MiniCPM:** التمهيد لاختبار MiniCPM في بيئة معزولة.
+- **Stable Core:** الحفاظ على Qwen كنموذج افتراضي دون أي تنفيذ Native في هذه المرحلة.
+
 ## تجريد محركات التشغيل (Multi-Runtime)
-
-يركز الإصدار **v0.6.0** على التأسيس الهندسي لمحركات متعددة:
-- **Model Runtime Interface:** واجهة موحدة لكافة المحركات (LiteRT, GGUF).
-- **Qwen Adapter:** ربط النموذج المستقر بالبنية الجديدة (Stub).
-- **GGUF Experimental Stub:** التمهيد لدعم صيغ GGUF مستقبلاً.
-- **Advanced Metrics:** قياس معياري موحد لسرعة التوليد واستهلاك الذاكرة.
-- **Safety Stubs:** جميع المحولات الجديدة معزولة وآمنة ولا تؤثر على التشغيل الحالي.
-
-### مستندات البنية التحتية للمحركات:
-- [خطة العمل (Plan)](GGUF_RUNTIME_PLAN.md)
-- [التصميم التقني (Technical Design)](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
-- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.6.0.md)
-- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.6.0.md)
-
-## جودة النماذج والتجارب
 ...
 - لا يتم إرسال المحادثات إلى خادم خارجي من داخل التطبيق.
 - أداة الخريطة تفتح تطبيق خرائط خارجي بعد تأكيد المستخدم.
