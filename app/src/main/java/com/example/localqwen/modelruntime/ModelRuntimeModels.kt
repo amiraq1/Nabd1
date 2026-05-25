@@ -37,7 +37,11 @@ data class ModelCandidate(
     val runtimeType: ModelRuntimeType,
     val fileExtension: String,
     val status: ModelCandidateStatus,
-    val notes: String
+    val notes: String,
+    val sourceUrl: String? = null,
+    val expectedFileName: String? = null,
+    val recommendedUse: String? = null,
+    val riskNotes: String? = null
 )
 
 /**
@@ -127,9 +131,11 @@ object DefaultModelCandidates {
     val MiniCPM = ModelCandidate(
         id = "minicpm-experimental",
         displayName = "MiniCPM Experimental",
-        runtimeType = ModelRuntimeType.UNKNOWN,
+        runtimeType = ModelRuntimeType.GGUF,
         fileExtension = ".gguf",
         status = ModelCandidateStatus.EXPERIMENTAL,
-        notes = "Experimental lightweight model candidate. Not a default replacement."
+        notes = "Experimental lightweight model candidate. Potential for faster inference on mid-range devices.",
+        recommendedUse = "Experimental testing on lower-spec hardware.",
+        riskNotes = "Not currently supported by LiteRT runtime. Requires separate implementation."
     )
 }

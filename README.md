@@ -136,7 +136,7 @@
 ## الخطط القادمة (Planned v0.5.0)
 
 - **Model Runtime Experiments:** إطار عمل لمقارنة أداء وجودة النماذج المحلية المختلفة. [التصميم التقني](MODEL_RUNTIME_TECHNICAL_DESIGN.md) | [قالب التقييم](MODEL_RUNTIME_EVALUATION_TEMPLATE.md)
-- **Qwen vs MiniCPM:** اختبار النماذج الخفيفة لتقييم السرعة واستهلاك الذاكرة.
+- **Qwen vs MiniCPM:** اختبار النماذج الخفيفة لتقييم السرعة واستهلاك الذاكرة. [توثيق MiniCPM](MINICPM_EXPERIMENTAL_CANDIDATE.md)
 - **Unified Benchmarking:** قياس الجودة والسرعة والذاكرة باستخدام معايير موحدة.
 - **Safety Compliance:** ضمان التزام النماذج الجديدة بمعايير السلامة ومنع الهلوسة.
 

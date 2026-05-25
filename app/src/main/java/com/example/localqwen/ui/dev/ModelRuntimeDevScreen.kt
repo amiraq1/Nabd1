@@ -171,6 +171,10 @@ fun ModelCandidateCard(candidate: ModelCandidate) {
             DetailRow(label = "Runtime", value = candidate.runtimeType.name)
             DetailRow(label = "Extension", value = candidate.fileExtension)
             
+            candidate.recommendedUse?.let {
+                DetailRow(label = "Recommended Use", value = it)
+            }
+            
             HorizontalDivider(color = DevBorder, modifier = Modifier.padding(vertical = 12.dp))
             
             Text(
@@ -185,6 +189,39 @@ fun ModelCandidateCard(candidate: ModelCandidate) {
                 fontSize = 12.sp,
                 lineHeight = 16.sp
             )
+
+            candidate.riskNotes?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "تنبيهات المخاطر:",
+                    color = DevPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = it,
+                    color = DevPrimary.copy(alpha = 0.8f),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+            
+            if (candidate.status == ModelCandidateStatus.EXPERIMENTAL) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = Color.Gray.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "هذا النموذج تجريبي وغير متاح للاستخدام الفعلي حالياً.",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
             
             Spacer(modifier = Modifier.height(16.dp))
             

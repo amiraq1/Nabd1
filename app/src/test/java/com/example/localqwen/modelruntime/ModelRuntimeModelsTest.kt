@@ -9,9 +9,16 @@ class ModelRuntimeModelsTest {
 
     @Test
     fun testDefaultCandidates() {
+        // Qwen
         assertEquals(ModelCandidateStatus.STABLE_DEFAULT, DefaultModelCandidates.Qwen.status)
-        assertEquals(ModelCandidateStatus.EXPERIMENTAL, DefaultModelCandidates.MiniCPM.status)
         assertEquals(".litertlm", DefaultModelCandidates.Qwen.fileExtension)
+        assertEquals(ModelRuntimeType.LITERT, DefaultModelCandidates.Qwen.runtimeType)
+
+        // MiniCPM
+        assertEquals(ModelCandidateStatus.EXPERIMENTAL, DefaultModelCandidates.MiniCPM.status)
+        assertEquals(".gguf", DefaultModelCandidates.MiniCPM.fileExtension)
+        assertEquals(ModelRuntimeType.GGUF, DefaultModelCandidates.MiniCPM.runtimeType)
+        assertTrue(DefaultModelCandidates.MiniCPM.riskNotes?.contains("Not currently supported") == true)
     }
 
     @Test
