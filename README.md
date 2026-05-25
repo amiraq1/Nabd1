@@ -18,23 +18,14 @@
 - ذاكرة نبض محلية اختيارية
 - مراقبة الأداء (RAM, TPS) لحظياً
 - Material Design 3
+## الخطط القادمة (Planned v0.8.0)
+
+- **External GGUF PoC:** تجربة تشغيل نماذج GGUF في بيئة معزولة خارج تطبيق نبض. [خطة العمل](EXTERNAL_GGUF_POC_PLAN.md) | [قالب النتائج](EXTERNAL_GGUF_POC_RESULTS_TEMPLATE.md)
+- **Safe Benchmarking:** قياس أداء MiniCPM والتحقق من الاستقرار دون التأثير على التطبيق الأساسي.
+- **Decision Engine:** اتخاذ قرار الدمج البرمجي (Proceed/Delay) بناءً على النتائج الميدانية.
+- **Non-Invasive Testing:** الحفاظ على بقاء Qwen كنموذج افتراضي وحيد مع استمرار عزل كود Native.
+
 ## البحث والتطوير (GGUF Research)
-
-يركز الإصدار **v0.7.0** على دراسة جدوى تشغيل نماذج GGUF:
-- **Feasibility Study:** دراسة معمقة لخيارات تشغيل GGUF على أندرويد.
-- **Backend Comparison:** مقارنة تقنية بين JNI، NDK، والمكتبات الجاهزة.
-- **Decision Report:** تقرير القرار النهائي بتأجيل الدمج المباشر لضمان الاستقرار.
-- **PoC Strategy:** اعتماد استراتيجية المشروع التجريبي المنفصل كخطوة قادمة.
-- **No Native Risk:** صفر مخاطر تقنية على النسخة الأساسية (بدون كود Native).
-
-### مستندات دراسة الجدوى:
-- [خطة البحث (Plan)](GGUF_RUNTIME_FEASIBILITY_RESEARCH.md)
-- [مقارنة الخيارات (Comparison)](GGUF_ANDROID_BACKEND_COMPARISON.md)
-- [تقرير القرار النهائي (Decision)](GGUF_RUNTIME_DECISION_REPORT.md)
-- [ملاحظات الإصدار (Release Notes)](RELEASE_NOTES_v0.7.0.md)
-- [قفل الجودة (Quality Lock)](QUALITY_LOCK_v0.7.0.md)
-
-## تجريد محركات التشغيل (Multi-Runtime)
 ...
 - لا يتم إرسال المحادثات إلى خادم خارجي من داخل التطبيق.
 - أداة الخريطة تفتح تطبيق خرائط خارجي بعد تأكيد المستخدم.
