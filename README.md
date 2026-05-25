@@ -144,6 +144,8 @@
 
 - **Experimental GGUF Runtime:** دراسة وتجهيز إمكانية تشغيل نماذج GGUF على أندرويد. [خطة العمل](GGUF_RUNTIME_PLAN.md) | [التصميم التقني](GGUF_RUNTIME_TECHNICAL_DESIGN.md)
   - تمت إضافة نماذج Runtime Abstraction الأساسية فقط.
+  - تمت إضافة QwenRuntimeAdapter كـ Stub فقط ولا يستخدم في تدفق المحادثة الحالي.
+  - Qwen الحقيقي ما زال يعمل بالطريقة الحالية من خلال المحرك النشط.
   - لم يتم تنفيذ GGUF أو JNI بعد.
   - Qwen ما زال النموذج الافتراضي.
 - **MiniCPM Support:** التمهيد لدعم نماذج MiniCPM الخفيفة بشكل تجريبي.
