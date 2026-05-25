@@ -19,6 +19,10 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.localqwen.viewmodel.ModelSetupState
 import com.example.localqwen.ui.compose.ModelSetupWizardSheet
+import com.example.localqwen.ui.dev.ModelRuntimeDevScreen
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -69,37 +73,43 @@ class SettingsActivity : AppCompatActivity() {
         setContent {
             val modelState by modelViewModel.modelState.observeAsState(com.example.localqwen.viewmodel.ModelState.NotImported)
             val setupState by modelViewModel.setupState.observeAsState(ModelSetupState.Idle)
+            var showDevMode by remember { mutableStateOf(false) }
 
-            NabdSettingsScreen(
-                appVersion = appVersion,
-                modelDescription = currentModelDescription,
-                modelStatus = currentModelStatus,
-                modelState = modelState,
-                onBackClick = { finish() },
-                onAccountClick = { showAccountAppDialog() },
-                onModelsClick = { showModelsDialog() },
-                onDocumentsClick = { showDocumentsSearchDialog() },
-                onChatsClick = { showConversationsDialog() },
-                onToolsClick = { showToolsDialog() },
-                onTermsClick = {
-                    MaterialAlertDialogBuilder(this)
-                        .setTitle("شروط الخدمة")
-                        .setMessage("شروط الخدمة الخاصة بتطبيق نبض (سيتم إضافتها لاحقاً).")
-                        .setPositiveButton("حسناً", null)
-                        .show()
-                },
-                onPrivacyClick = { finishWithAction(ACTION_PRIVACY_POLICY) },
-                onModelSettingsClick = { showModelsDialog() },
-                onCheckUpdatesClick = {
-                    MaterialAlertDialogBuilder(this)
-                        .setTitle("التحقق من التحديثات")
-                        .setMessage("أنت تستخدم أحدث إصدار متاح.")
-                        .setPositiveButton("حسناً", null)
-                        .show()
-                },
-                onSetupModel = { modelPickerLauncher.launch("*/*") },
-                onLoadModel = { modelViewModel.loadModel() }
-            )
+            if (showDevMode) {
+                ModelRuntimeDevScreen(onBackClick = { showDevMode = false })
+            } else {
+                NabdSettingsScreen(
+                    appVersion = appVersion,
+                    modelDescription = currentModelDescription,
+                    modelStatus = currentModelStatus,
+                    modelState = modelState,
+                    onBackClick = { finish() },
+                    onAccountClick = { showAccountAppDialog() },
+                    onModelsClick = { showModelsDialog() },
+                    onDocumentsClick = { showDocumentsSearchDialog() },
+                    onChatsClick = { showConversationsDialog() },
+                    onToolsClick = { showToolsDialog() },
+                    onTermsClick = {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("شروط الخدمة")
+                            .setMessage("شروط الخدمة الخاصة بتطبيق نبض (سيتم إضافتها لاحقاً).")
+                            .setPositiveButton("حسناً", null)
+                            .show()
+                    },
+                    onPrivacyClick = { finishWithAction(ACTION_PRIVACY_POLICY) },
+                    onModelSettingsClick = { showModelsDialog() },
+                    onCheckUpdatesClick = {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("التحقق من التحديثات")
+                            .setMessage("أنت تستخدم أحدث إصدار متاح.")
+                            .setPositiveButton("حسناً", null)
+                            .show()
+                    },
+                    onSetupModel = { modelPickerLauncher.launch("*/*") },
+                    onLoadModel = { modelViewModel.loadModel() },
+                    onDevModeClick = { showDevMode = true }
+                )
+            }
 
             if (setupState !is ModelSetupState.Idle) {
                 ModalBottomSheet(

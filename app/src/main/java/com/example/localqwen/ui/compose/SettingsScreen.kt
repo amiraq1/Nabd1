@@ -14,8 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +56,8 @@ fun NabdSettingsScreen(
     onModelSettingsClick: () -> Unit,
     onCheckUpdatesClick: () -> Unit,
     onSetupModel: () -> Unit = {},
-    onLoadModel: () -> Unit = {}
+    onLoadModel: () -> Unit = {},
+    onDevModeClick: () -> Unit = {}
 ) {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Box(
@@ -149,11 +149,23 @@ fun NabdSettingsScreen(
 
                 item {
                     Spacer(modifier = Modifier.height(32.dp))
+                    var clickCount by remember { mutableStateOf(0) }
                     Text(
                         text = "الإصدار $appVersion",
                         color = SettingsTextSecondary.copy(alpha = 0.4f),
                         fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                clickCount++
+                                if (clickCount >= 7) {
+                                    onDevModeClick()
+                                    clickCount = 0
+                                }
+                            },
                         textAlign = TextAlign.Center
                     )
                 }
