@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -512,10 +513,10 @@ fun NabdHomeComposer(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Send, 
+                    Icons.AutoMirrored.Filled.Send, 
                     contentDescription = "إرسال", 
-                    tint = if (sendEnabled) Color.White else Color.Gray,
-                    modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f)
+                    tint = if (sendEnabled) NabdSoftPink else Color.Gray,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

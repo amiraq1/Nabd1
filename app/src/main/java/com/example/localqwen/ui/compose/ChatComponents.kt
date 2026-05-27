@@ -21,7 +21,7 @@ import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -334,10 +334,10 @@ fun ChatInputBar(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Send, 
+                    Icons.AutoMirrored.Filled.Send, 
                     contentDescription = "إرسال", 
                     tint = if (sendEnabled) Color.White else Color.Gray,
-                    modifier = Modifier.size(20.dp).graphicsLayer(rotationZ = 180f)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
