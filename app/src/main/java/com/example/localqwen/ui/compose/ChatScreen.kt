@@ -24,11 +24,9 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isGenerating: Boolean,
     onSendMessage: (String) -> Unit,
-    onAddAttachment: () -> Unit, codex/improve-chat-usability
+    onAddAttachment: () -> Unit,
     onCancelGeneration: () -> Unit,
-
     onAnalyzeImage: () -> Unit = {},
- main
     onMenuClick: () -> Unit,
     onBackClick: () -> Unit,
     statusText: String = "جاهز",
@@ -108,13 +106,10 @@ fun ChatScreen(
             ChatInputBar(
                 onSendMessage = onSendMessage,
                 onAddAttachment = onAddAttachment,
- codex/improve-chat-usability
                 onCancelGeneration = onCancelGeneration,
-                isBusy = isGenerating
-
                 onAnalyzeImage = onAnalyzeImage,
+                isBusy = isGenerating,
                 isEnabled = !isGenerating
- main
             )
         }
     }

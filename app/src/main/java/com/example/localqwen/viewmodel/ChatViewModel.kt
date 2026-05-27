@@ -475,7 +475,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     DocumentContextResult(context = null, generationStatus = "جاري التوليد...")
                 }
 
-                val historyContext = buildChatHistoryPrompt(limit = 6)
+                val historyContext = buildChatHistoryPrompt(limit = 4)
+
+                // Verification Engine Integration
+                val verificationDecision = VerificationClassifier.classify(input)
+                val verificationInstruction = if (VerificationPromptBuilder.shouldInjectInstruction(verificationDecision)) {
+                    VerificationPromptBuilder.buildInstruction(verificationDecision)
+                } else null
+                
+                Log.d("NabdVerification", "Query: $input")
+                Log.d("NabdVerification", "Level: ${verificationDecision.level}")
+                Log.d("NabdVerification", "Reason: ${verificationDecision.reason}")
+                if (verificationInstruction != null) {
+                    Log.d("NabdVerification", "Instruction Injected: Yes")
+                }
+
+                // Store verification decision in the assistant message for UI
+                withContext(Dispatchers.Main) {
+                    if (activeAssistantMessageIndex != -1 && activeAssistantMessageIndex < chatMessages.size) {
+                        chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(
+                            verificationLevel = verificationDecision.level,
+                            sourceRequirement = verificationDecision.sourceRequirement
+                        )
+                        _messages.value = chatMessages.toList()
+                    }
+                }
 
                 val prompt = if (contextResult.context != null) {
                     NabdSystemPrompt.documentPrompt(
@@ -483,20 +507,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         contextChunks = contextResult.context,
                         answerLengthInstruction = documentAnswerLengthInstruction,
                         historyContext = historyContext,
-                        responseMode = responseMode
+                        responseMode = responseMode,
+                        verificationInstruction = verificationInstruction
                     )
                 } else {
                     NabdSystemPrompt.normalChatPrompt(
-                        userInput = input,
-                        historyContext = historyContext,
+                        userInput = input, 
+                        historyContext = historyContext, 
                         memoryContext = memoryContext,
-                        responseMode = responseMode
+                        responseMode = responseMode,
+                        verificationInstruction = verificationInstruction
                     )
                 }
 
                 _isPreparingContext.value = false
 
- codex/improve-chat-usability
                 try {
                     engine?.resetConversation()
                 } catch (_: Exception) {
@@ -509,50 +534,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     status = contextResult.generationStatus,
                     autoTitle = chatMessages.count { it.role == Role.USER } == 1,
                     firstUserMessage = input
-
-            // Verification Engine Integration
-            val verificationDecision = VerificationClassifier.classify(input)
-            val verificationInstruction = if (VerificationPromptBuilder.shouldInjectInstruction(verificationDecision)) {
-                VerificationPromptBuilder.buildInstruction(verificationDecision)
-            } else null
-            
-            Log.d("NabdVerification", "Query: $input")
-            Log.d("NabdVerification", "Level: ${verificationDecision.level}")
-            Log.d("NabdVerification", "Reason: ${verificationDecision.reason}")
-            if (verificationInstruction != null) {
-                Log.d("NabdVerification", "Instruction Injected: Yes")
-            }
-
-            // Store verification decision in the assistant message for UI
-            withContext(Dispatchers.Main) {
-                if (activeAssistantMessageIndex != -1 && activeAssistantMessageIndex < chatMessages.size) {
-                    chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(
-                        verificationLevel = verificationDecision.level,
-                        sourceRequirement = verificationDecision.sourceRequirement
-                    )
-                    _messages.value = chatMessages.toList()
-                }
-            }
-
-            val prompt = if (contextResult.context != null) {
-                NabdSystemPrompt.documentPrompt(
-                    userInput = input,
-                    contextChunks = contextResult.context,
-                    answerLengthInstruction = documentAnswerLengthInstruction,
-                    historyContext = historyContext,
-                    responseMode = responseMode,
-                    verificationInstruction = verificationInstruction
                 )
-            } else {
-                NabdSystemPrompt.normalChatPrompt(
-                    userInput = input, 
-                    historyContext = historyContext, 
-                    memoryContext = memoryContext,
-                    responseMode = responseMode,
-                    verificationInstruction = verificationInstruction
- main
-                )
-            } catch (_: CancellationException) {
+            } catch (_: kotlinx.coroutines.CancellationException) {
                 finishStoppedGeneration()
             } finally {
                 _isPreparingContext.value = false
@@ -969,8 +952,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val STREAM_UPDATE_MIN_CHARS = 24
         private const val DOCUMENT_TEXT_LIMIT = 100_000
-        private const val DOCUMENT_CHUNK_SIZE = 800
-        private const val MAX_RETRIEVED_CHUNKS = 3
+        private const val DOCUMENT_CHUNK_SIZE = 500
+        private const val MAX_RETRIEVED_CHUNKS = 2
     }
 }
 

@@ -1,0 +1,47 @@
+=== Nabd Gemma 3 Diagnostic Report ===
+Time: ٢٠٢٦-٠٥-٢٧ ١٦:٢٥:٣٣
+
+--- Device Info ---
+Manufacturer: Xiaomi
+Model: 23078PND5G
+SDK: 36
+Package: com.example.localqwen
+Version: 0.2.0-beta
+
+--- Model Info ---
+Model ID: gemma_3n_e2b_it
+Path: /data/user/0/com.example.localqwen/files/models/gemma_3n_e2b_it/model.litertlm
+Exists: true
+Size: 3655827456 bytes
+
+--- Vision Info ---
+Stage: loadModel
+Prompt Length: 18
+
+--- Error Details ---
+Message: Failed to create engine: INVALID_ARGUMENT: Vision backend constraint mismatch. Model requires one of [gpu] but Vision backend is CPU
+Stacktrace:
+com.google.ai.edge.litertlm.LiteRtLmJniException: Failed to create engine: INVALID_ARGUMENT: Vision backend constraint mismatch. Model requires one of [gpu] but Vision backend is CPU
+	at com.google.ai.edge.litertlm.LiteRtLmJni.nativeCreateEngine(Native Method)
+	at com.google.ai.edge.litertlm.Engine.initialize(Engine.kt:72)
+	at java.lang.reflect.Method.invoke(Native Method)
+	at com.example.localqwen.engine.LiteRtLmInferenceEngine$load$3.invokeSuspend(LiteRtLmInferenceEngine.kt:50)
+	at com.example.localqwen.engine.LiteRtLmInferenceEngine$load$3.invoke(Unknown Source:8)
+	at com.example.localqwen.engine.LiteRtLmInferenceEngine$load$3.invoke(Unknown Source:4)
+	at kotlinx.coroutines.intrinsics.UndispatchedKt.startUndspatched(Undispatched.kt:66)
+	at kotlinx.coroutines.intrinsics.UndispatchedKt.startUndispatchedOrReturn(Undispatched.kt:43)
+	at kotlinx.coroutines.BuildersKt__Builders_commonKt.withContext(Builders.common.kt:165)
+	at kotlinx.coroutines.BuildersKt.withContext(Unknown Source:1)
+	at com.example.localqwen.engine.LiteRtLmInferenceEngine.load(LiteRtLmInferenceEngine.kt:20)
+	at com.example.localqwen.engine.GemmaImageAnalyzer$loadModel$2.invokeSuspend(GemmaImageAnalyzer.kt:34)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+
+
+=== End of Report ===

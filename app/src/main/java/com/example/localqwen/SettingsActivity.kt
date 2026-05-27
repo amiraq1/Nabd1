@@ -24,16 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
- codex/improve-chat-usability
-    private lateinit var mainContainer: LinearLayout
-    private lateinit var tvStatus: TextView
-    private lateinit var tvModel: TextView
-    private lateinit var tvDoc: TextView
-    private lateinit var tvIndex: TextView
-    private lateinit var tvVersion: TextView
-
 class SettingsActivity : AppCompatActivity() {
- main
 
     private var currentModelDescription: String = ""
     private var currentModelStatus: String = ""
@@ -47,7 +38,6 @@ class SettingsActivity : AppCompatActivity() {
     private var currentPdfPageLimit: Int = 10
     private var embeddingModelStatus: String = ""
     private var embeddingIndexCount: Int = 0
-    private var selectedDocumentId: String? = null
     private var selectedDocumentTitle: String? = null
     private var currentSessionTitle: String = ""
     private var appVersion: String = ""
@@ -73,95 +63,6 @@ class SettingsActivity : AppCompatActivity() {
         selectedDocumentTitle = intent.getStringExtra(EXTRA_SELECTED_DOCUMENT_TITLE)
         currentSessionTitle = intent.getStringExtra(EXTRA_SESSION_TITLE).orEmpty()
         appVersion = intent.getStringExtra(EXTRA_APP_VERSION).orEmpty()
-
- codex/improve-chat-usability
-        findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
-        mainContainer = findViewById(R.id.sectionMainSettings)
-        tvStatus = findViewById(R.id.tvSettingsStatusValue)
-        tvModel = findViewById(R.id.tvSettingsModelValue)
-        tvDoc = findViewById(R.id.tvSettingsDocValue)
-        tvIndex = findViewById(R.id.tvSettingsIndexValue)
-        tvVersion = findViewById(R.id.tvSettingsVersion)
-
-        findViewById<View>(R.id.btnQuickReadiness).setOnClickListener {
-            finishWithAction(ACTION_READINESS_CHECK)
-        }
-        findViewById<View>(R.id.btnQuickCopyReport).setOnClickListener {
-            finishWithAction(ACTION_COPY_BETA_REPORT)
-        }
-        findViewById<View>(R.id.btnQuickPrivacy).setOnClickListener {
-            finishWithAction(ACTION_PRIVACY_POLICY)
-        }
-
-        bindStateCard()
-        populateMainSections()
-    }
-
-    private fun bindStateCard() {
-        val status = currentModelStatus.ifBlank { "غير مشغّل" }
-        tvStatus.text = status
-        tvStatus.setBackgroundResource(statusBackground(status))
-        tvStatus.setTextColor(statusTextColor(status))
-        tvModel.text = "النموذج: ${currentModelDescription.ifBlank { "لم يتم اختيار نموذج" }}"
-        tvDoc.text = selectedDocumentTitle?.let { "مستند: $it" } ?: "لا يوجد مستند نشط"
-        tvDoc.setBackgroundResource(if (selectedDocumentTitle != null) R.drawable.bg_status_chip_ready else R.drawable.bg_status_chip_inactive)
-        tvDoc.setTextColor(if (selectedDocumentTitle != null) ContextCompat.getColor(this, R.color.nabd_success) else ContextCompat.getColor(this, R.color.nabd_text_secondary))
-        tvIndex.text = "$embeddingIndexCount فهرس"
-        tvVersion.text = appVersionLabel()
-    }
-
-    private fun populateMainSections() {
-        mainContainer.removeAllViews()
-        addOptionRow(
-            mainContainer,
-            R.drawable.ic_help,
-            "الحساب والتطبيق",
-            "الذاكرة ${memoryStatusLabel()} • ${appVersionLabel()} • الخصوصية والتقارير",
-            badge = "عام"
-        ) {
-            showAccountAppDialog()
-        }
-
-        addOptionRow(
-            mainContainer,
-            R.drawable.ic_model,
-            "النماذج",
-            modelSectionSummary(),
-            badge = if (isPositiveStatus(currentModelStatus)) "جاهز" else "تحقق",
-            badgeBackground = statusBackground(currentModelStatus)
-        ) {
-            showModelsDialog()
-        }
-
-        addOptionRow(
-            mainContainer,
-            R.drawable.ic_search,
-            "المستندات والبحث",
-            documentSectionSummary(),
-            badge = if (selectedDocumentTitle != null) "نشط" else "${embeddingIndexCount} فهرس",
-            badgeBackground = if (selectedDocumentTitle != null) R.drawable.bg_status_chip_ready else R.drawable.bg_status_chip_inactive
-        ) {
-            showDocumentsSearchDialog()
-        }
-
-        addOptionRow(
-            mainContainer,
-            R.drawable.ic_history,
-            "المحادثات",
-            "${currentSessionTitle.ifBlank { "محادثة نشطة" }} • نسخ أو بدء جلسة جديدة",
-            badge = "جلسة"
-        ) {
-            showConversationsDialog()
-        }
-
-        addOptionRow(
-            mainContainer,
-            R.drawable.ic_tools,
-            "الأدوات",
-            "تشخيص الجهاز، مهام الخلفية، وأدوات الموقع المحفوظة",
-            badge = "محلي"
-        ) {
-            showToolsDialog()
 
         val modelPickerLauncher = registerForActivityResult(
             ActivityResultContracts.GetContent()
@@ -229,7 +130,6 @@ class SettingsActivity : AppCompatActivity() {
                     )
                 }
             }
- main
         }
     }
 
@@ -270,18 +170,19 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun isPositiveStatus(value: String): Boolean {
+        val normalized = value.trim()
+        if (normalized.isBlank() || normalized.contains("غير")) return false
+        return normalized.contains("جاهز") || normalized.contains("مستورد") || normalized.contains("Ready", ignoreCase = true)
+    }
+
     private fun showModelsDialog() {
         val items = arrayOf(
             "Gemma 3 Multimodal (${currentModelGemma3Status.ifBlank { "غير مستورد" }})",
             "Gemma E2B (${currentModelE2bStatus.ifBlank { "غير مستورد" }})",
             "Gemma E4B (${currentModelE4bStatus.ifBlank { "غير مستورد" }})",
- codex/improve-chat-usability
-            "نموذج الرؤية (${currentModelVisionStatus.ifBlank { "غير مستورد" }})",
+            "نموذج الرؤية الإضافي (${currentModelVisionStatus.ifBlank { "غير مستورد" }})",
             "نموذج التضمين (${embeddingModelStatus.ifBlank { "غير مستورد" }})",
-
-            "نموذج الرؤية الإضافي (FastVLM)",
-            "نموذج التضمين",
- main
             "فحص الجاهزية\nتحقق من النماذج والمساحة قبل التشغيل",
             "دليل استيراد النماذج\nشرح سريع لاختيار واستيراد النماذج",
             "تشخيص نموذج الذكاء"
@@ -290,24 +191,16 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle("النماذج")
             .setItems(items) { _, which ->
                 when (which) {
- codex/improve-chat-usability
-                    0 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
-                    1 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
-                    2 -> {
-                        if (isPositiveStatus(currentModelVisionStatus)) {
-                            confirmAction(
-                                title = "حذف نموذج الرؤية؟",
-                                message = "يمكنك استيراده مرة أخرى لاحقًا من ملف النموذج.",
-                                action = ACTION_DELETE_VISION_MODEL
-                            )
-
                     0 -> finishWithAction(ACTION_MANAGE_MODEL_GEMMA3)
                     1 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
                     2 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
                     3 -> {
-                         if (currentModelVisionStatus.startsWith("مستورد")) {
-                            finishWithAction(ACTION_DELETE_VISION_MODEL)
- main
+                        if (isPositiveStatus(currentModelVisionStatus)) {
+                            confirmAction(
+                                title = "حذف نموذج الرؤية الإضافي؟",
+                                message = "يمكنك استيراده مرة أخرى لاحقًا من ملف النموذج.",
+                                action = ACTION_DELETE_VISION_MODEL
+                            )
                         } else {
                             finishWithAction(ACTION_IMPORT_VISION_MODEL)
                         }
@@ -418,7 +311,7 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle("الأدوات")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> finishWithAction(ACTION_LOCAL_MODEL_MANAGER) // Using manager for tools info
+                    0 -> finishWithAction(ACTION_LOCAL_MODEL_MANAGER)
                     1 -> showInfoDialog("أداة الخريطة", "واجهة إدارة الخريطة والأماكن يمكن إضافتها كشاشة مستقلة في المرحلة القادمة.")
                     2 -> showInfoDialog("الأماكن المحفوظة", "الأماكن المحفوظة تبقى محلية على الجهاز، وسيظهر مديرها هنا عند اكتمال الواجهة.")
                     3 -> finishWithAction(ACTION_BACKGROUND_TASKS)
@@ -509,40 +402,6 @@ class SettingsActivity : AppCompatActivity() {
         return if (appVersion.isBlank()) "نسخة تجريبية" else "v$appVersion"
     }
 
-    private fun modelSectionSummary(): String {
-        val selected = currentModelDescription.ifBlank { "لم يتم اختيار نموذج" }
-        val status = currentModelStatus.ifBlank { "غير مشغّل" }
-        return "$selected • $status • الرؤية ${currentModelVisionStatus.ifBlank { "غير مستوردة" }}"
-    }
-
-    private fun documentSectionSummary(): String {
-        val document = selectedDocumentTitle ?: "لا يوجد مستند نشط"
-        return "$document • ${ragSearchModeLabel(currentRagSearchMode)} • ${pdfPageLimitLabel(currentPdfPageLimit)} • $embeddingIndexCount فهرس"
-    }
-
-    private fun isPositiveStatus(value: String): Boolean {
-        val normalized = value.trim()
-        if (normalized.isBlank() || normalized.contains("غير")) return false
-        return normalized.contains("جاهز") || normalized.contains("مستورد") || normalized.contains("Ready", ignoreCase = true)
-    }
-
-    private fun statusBackground(value: String): Int {
-        val normalized = value.trim()
-        return when {
-            isPositiveStatus(normalized) -> R.drawable.bg_status_chip_ready
-            normalized.contains("جاري") || normalized.contains("تحميل") || normalized.contains("Loading", ignoreCase = true) -> R.drawable.bg_status_chip_loading
-            else -> R.drawable.bg_status_chip_inactive
-        }
-    }
-
-    private fun statusTextColor(value: String): Int {
-        return when (statusBackground(value)) {
-            R.drawable.bg_status_chip_ready -> ContextCompat.getColor(this, R.color.nabd_success)
-            R.drawable.bg_status_chip_loading -> ContextCompat.getColor(this, R.color.nabd_primary)
-            else -> ContextCompat.getColor(this, R.color.nabd_text_secondary)
-        }
-    }
-
     private fun documentAnswerLengthLabel(value: String): String {
         return when (value) {
             "medium" -> "متوسط"
@@ -571,57 +430,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
- codex/improve-chat-usability
-    private fun addOptionRow(
-        container: LinearLayout,
-        iconRes: Int,
-        title: String,
-        subtitle: String? = null,
-        titleColor: Int = ContextCompat.getColor(this, R.color.nabd_on_surface),
-        iconColor: Int = ContextCompat.getColor(this, R.color.nabd_text_secondary),
-        badge: String? = null,
-        badgeBackground: Int = R.drawable.bg_status_chip_inactive,
-        onClick: () -> Unit
-    ) {
-        val row = LayoutInflater.from(this).inflate(R.layout.item_option_row, container, false)
-        row.findViewById<ImageView>(R.id.ivOptionIcon).apply {
-            setImageResource(iconRes)
-            imageTintList = ColorStateList.valueOf(iconColor)
-        }
-        row.findViewById<TextView>(R.id.tvOptionTitle).apply {
-            text = title
-            setTextColor(titleColor)
-        }
-        row.findViewById<TextView>(R.id.tvOptionSubtitle).apply {
-            if (subtitle.isNullOrBlank()) {
-                visibility = View.GONE
-            } else {
-                text = subtitle
-                visibility = View.VISIBLE
-            }
-        }
-        row.findViewById<TextView>(R.id.tvOptionBadge).apply {
-            if (badge.isNullOrBlank()) {
-                visibility = View.GONE
-            } else {
-                text = badge
-                setBackgroundResource(badgeBackground)
-                setTextColor(
-                    when (badgeBackground) {
-                        R.drawable.bg_status_chip_ready -> ContextCompat.getColor(this@SettingsActivity, R.color.nabd_success)
-                        R.drawable.bg_status_chip_loading -> ContextCompat.getColor(this@SettingsActivity, R.color.nabd_primary)
-                        else -> ContextCompat.getColor(this@SettingsActivity, R.color.nabd_text_secondary)
-                    }
-                )
-                visibility = View.VISIBLE
-            }
-        }
-        row.setOnClickListener { onClick() }
-        container.addView(row)
-    }
-
-
- main
     private fun finishWithAction(action: String, value: String? = null) {
         val intent = Intent().putExtra(EXTRA_ACTION, action)
         if (value != null) intent.putExtra(EXTRA_VALUE, value)
