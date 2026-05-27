@@ -84,9 +84,15 @@ class MainActivity : ComponentActivity() {
             this,
             modelDescription = modelViewModel.selectedModel.value?.displayName ?: "",
             modelStatus = modelViewModel.currentModelStatusLabel(),
+ codex/improve-chat-usability
+            modelE2bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[0]),
+            modelE4bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[1]),
+            modelVisionStatus = modelViewModel.modelImportStatus(ModelManager.VISION_MODEL),
+
             modelGemma3Status = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[0]),
             modelE2bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[1]),
             modelE4bStatus = modelViewModel.modelImportStatus(ModelManager.SUPPORTED_MODELS[2]),
+ main
             documentAnswerLength = chatViewModel.currentDocumentAnswerLength(),
             ragSearchMode = modelViewModel.currentRagMode().name.lowercase(),
             embeddingBackend = modelViewModel.currentEmbeddingBackend().name.lowercase(),

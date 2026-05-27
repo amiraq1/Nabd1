@@ -132,6 +132,7 @@ fun NabdApp(
     }
     val messages by chatViewModel.messages.observeAsState(emptyList())
     val isGenerating by chatViewModel.isGenerating.observeAsState(false)
+    val isPreparingContext by chatViewModel.isPreparingContext.observeAsState(false)
     val isProcessingDocument by chatViewModel.isProcessingDocument.observeAsState(false)
     val selectedModel by modelViewModel.selectedModel.observeAsState()
     val modelState by modelViewModel.modelState.observeAsState()
@@ -145,6 +146,7 @@ fun NabdApp(
     var showModelSheet by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState()
+    val isBusy = isGenerating || isPreparingContext || isProcessingDocument
 
     LaunchedEffect(modelState) {
         modelState?.let { state ->
@@ -195,6 +197,26 @@ fun NabdApp(
     ) { uri: Uri? ->
         uri?.let { chatViewModel.importDocument(it) }
     }
+
+ codex/improve-chat-usability
+    fun formattedStatus(event: StatusEvent): String {
+        val base = when (event) {
+            is StatusEvent.Info -> event.message
+            is StatusEvent.Success -> event.message
+            is StatusEvent.Error -> event.message
+        }
+        return if (currentTps > 0) "$base (${"%.1f".format(currentTps)} t/s)" else base
+    }
+
+    LaunchedEffect(modelStatusEvent, currentTps) {
+        modelStatusEvent?.let { event ->
+            statusText = formattedStatus(event)
+        }
+    }
+
+    LaunchedEffect(statusEvent, currentTps) {
+        statusEvent?.let { event ->
+            statusText = formattedStatus(event)
 
     // New Image Picker for Gemma 3 Vision
     var showVisionDialog by remember { mutableStateOf(false) }
@@ -248,6 +270,7 @@ fun NabdApp(
                 is StatusEvent.Error -> event.message
             }
             statusText = if (currentTps > 0) "$base (${"%.1f".format(currentTps)} t/s)" else base
+ main
         }
     }
 
@@ -303,8 +326,13 @@ fun NabdApp(
             onShowHistory = { showMemoryDialog = true },
             onShowMenu = onOpenSettings,
             onModelBadgeClick = { showModelSheet = true },
+ codex/improve-chat-usability
+            isBusy = isBusy,
+            statusText = statusText
+
             onSetupModel = { modelPickerLauncher.launch("*/*") },
             onLoadModel = { modelViewModel.loadModel() }
+ main
         )
 
         if (showMemoryDialog) {
@@ -318,9 +346,10 @@ fun NabdApp(
     } else {
         ChatScreen(
             messages = messages,
-            isGenerating = isGenerating || isProcessingDocument,
+            isGenerating = isBusy,
             onSendMessage = handleSendMessage,
             onAddAttachment = { documentPickerLauncher.launch("*/*") },
+            onCancelGeneration = { chatViewModel.stopGeneration() },
             onMenuClick = onOpenSettings,
             onBackClick = { chatViewModel.startNewChat() },
             statusText = statusText,

@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +17,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.localqwen.chat.ChatMessage
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,20 +24,23 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isGenerating: Boolean,
     onSendMessage: (String) -> Unit,
-    onAddAttachment: () -> Unit,
+    onAddAttachment: () -> Unit, codex/improve-chat-usability
+    onCancelGeneration: () -> Unit,
+
     onAnalyzeImage: () -> Unit = {},
+ main
     onMenuClick: () -> Unit,
     onBackClick: () -> Unit,
     statusText: String = "جاهز",
     onModelClick: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
+    val latestMessageKey = messages.lastOrNull()?.let { "${it.id}:${it.text.length}" }
 
-    // Scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, latestMessageKey, isGenerating) {
+        val totalItems = messages.size + if (isGenerating) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
         }
     }
 
@@ -76,6 +77,16 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            if (isGenerating) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp),
+                    color = Color(0xFFFF5A5F),
+                    trackColor = Color.Transparent
+                )
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -83,7 +94,7 @@ fun ChatScreen(
                 state = listState,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
             ) {
-                items(messages) { message ->
+                items(messages, key = { it.id }) { message ->
                     MessageBubble(message)
                 }
                 
@@ -97,8 +108,13 @@ fun ChatScreen(
             ChatInputBar(
                 onSendMessage = onSendMessage,
                 onAddAttachment = onAddAttachment,
+ codex/improve-chat-usability
+                onCancelGeneration = onCancelGeneration,
+                isBusy = isGenerating
+
                 onAnalyzeImage = onAnalyzeImage,
                 isEnabled = !isGenerating
+ main
             )
         }
     }

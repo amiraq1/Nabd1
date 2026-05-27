@@ -11,12 +11,23 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+ codex/improve-chat-usability
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
+
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.Send
+ main
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
@@ -50,6 +62,21 @@ fun NabdWelcomeScreen(
     onShowHistory: () -> Unit = {},
     onShowMenu: () -> Unit = {},
     onModelBadgeClick: () -> Unit = {},
+ codex/improve-chat-usability
+    activeModelName: String = "Gemma-2B (Local)",
+    isBusy: Boolean = false,
+    statusText: String = "جاهز"
+) {
+    var textInput by rememberSaveable { mutableStateOf("") }
+
+    fun submitText() {
+        val message = textInput.trim()
+        if (message.isNotEmpty() && !isBusy) {
+            onSendMessage(message)
+            textInput = ""
+        }
+    }
+
     onSetupModel: () -> Unit = {},
     onLoadModel: () -> Unit = {},
     activeModelName: String = "Gemma",
@@ -57,6 +84,7 @@ fun NabdWelcomeScreen(
 ) {
     var textInput by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
+ main
 
     Box(
         modifier = Modifier
@@ -168,6 +196,56 @@ fun NabdHomeHeader(onShowMenu: () -> Unit) {
     }
 }
 
+ codex/improve-chat-usability
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (isBusy) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp),
+                        color = Color(0xFFFF5A5F),
+                        trackColor = Color.Transparent
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = statusText,
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = { textInput = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp),
+                        placeholder = { Text("أرسل رسالة...", color = Color.Gray, fontSize = 15.sp) },
+                        shape = CircleShape,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFFF0F0F0),
+                            unfocusedContainerColor = Color(0xFFF0F0F0),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        singleLine = true,
+                        enabled = !isBusy,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { submitText() })
+                    )
+=======
 @Composable
 fun WelcomeSection(userName: String) {
     Column(
@@ -215,6 +293,7 @@ fun WelcomeSection(userName: String) {
         )
     }
 }
+ main
 
 @Composable
 fun QuickActionsGrid(
@@ -265,6 +344,14 @@ fun QuickActionsGrid(
         }
     }
 }
+
+ codex/improve-chat-usability
+                    NabdPulseButton(
+                        onClick = { submitText() },
+                        isActive = textInput.isNotBlank(),
+                        modifier = Modifier.size(50.dp),
+                        isEnabled = !isBusy && textInput.isNotBlank()
+                    )
 
 @Composable
 fun QuickActionCard(
@@ -317,6 +404,7 @@ fun QuickActionCard(
         }
     }
 }
+ main
 
 @Composable
 fun PulseHeroSection() {
@@ -339,6 +427,19 @@ fun PulseHeroSection() {
         ),
         label = "Scale"
     )
+
+ codex/improve-chat-usability
+                    FloatingActionButton(
+                        onClick = { if (!isBusy) onAddAttachment() },
+                        modifier = Modifier.size(50.dp),
+                        shape = CircleShape,
+                        containerColor = if (isBusy) Color(0xFFE6E6E6) else Color(0xFFF0F0F0),
+                        contentColor = if (isBusy) Color(0xFF999999) else Color(0xFF333333),
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Attachment")
+                    }
+                }
 
     Box(
         modifier = Modifier
@@ -377,6 +478,7 @@ fun PulseHeroSection() {
         }
     }
 }
+ main
 
 @Composable
 fun ModelStatusCard(
