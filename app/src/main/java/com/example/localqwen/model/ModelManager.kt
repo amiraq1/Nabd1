@@ -24,6 +24,12 @@ class ModelManager(private val context: Context) {
 
         val SUPPORTED_MODELS = listOf(
             SupportedModel(
+                id = "gemma_3n_e2b_it",
+                displayName = "Gemma 3 Multimodal",
+                fileName = "gemma-3n-E2B-it-int4.litertlm",
+                description = "نموذج رؤية ومحادثة متقدم"
+            ),
+            SupportedModel(
                 id = "gemma_e2b",
                 displayName = "Gemma E2B — سريع ومتوازن",
                 fileName = "gemma-e2b.litertlm",

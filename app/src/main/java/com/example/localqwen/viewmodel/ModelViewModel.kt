@@ -46,6 +46,9 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
     private val _modelState = MutableLiveData<ModelState>(ModelState.NotImported)
     val modelState: LiveData<ModelState> = _modelState
 
+    private val _setupState = MutableLiveData<ModelSetupState>(ModelSetupState.Idle)
+    val setupState: LiveData<ModelSetupState> = _setupState
+
     private val _selectedModel = MutableLiveData<SupportedModel>(resolveSelectedModel())
     val selectedModel: LiveData<SupportedModel> = _selectedModel
 
@@ -184,32 +187,48 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importModel(model: SupportedModel, uri: android.net.Uri) {
         viewModelScope.launch {
+            Log.d("ModelViewModel", "Starting import for model: ${model.id}")
+            Log.d("ModelViewModel", "Selected URI: $uri")
             _statusEvent.value = StatusEvent.Info("جاري استيراد ${model.displayName}...")
             try {
                 val success = withContext(Dispatchers.IO) {
                     val targetFile = modelManager.modelFile(model)
                     val tempFile = modelManager.tempModelFile(model)
+                    Log.d("ModelViewModel", "Target path: ${targetFile.absolutePath}")
+                    Log.d("ModelViewModel", "Temp path: ${tempFile.absolutePath}")
+
                     tempFile.parentFile?.mkdirs()
                     if (tempFile.exists()) tempFile.delete()
+
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
                         tempFile.outputStream().use { output ->
                             input.copyTo(output)
                         }
-                    } ?: error("تعذر فتح ملف النموذج")
+                    } ?: error("تعذر فتح ملف النموذج المختار")
+
+                    Log.d("ModelViewModel", "Copy to temp finished. Temp size: ${tempFile.length()} bytes")
 
                     if (tempFile.length() < ModelManager.MIN_MODEL_SIZE_BYTES) {
+                        val size = tempFile.length()
                         tempFile.delete()
-                        error("ملف النموذج صغير جدًا أو غير مكتمل")
+                        error("ملف النموذج صغير جدًا ($size bytes). تأكد من اكتمال التحميل.")
                     }
 
-                    if (targetFile.exists() && !targetFile.delete()) {
-                        tempFile.delete()
-                        error("تعذر استبدال ملف النموذج السابق")
+                    if (targetFile.exists()) {
+                        Log.d("ModelViewModel", "Deleting existing target file")
+                        if (!targetFile.delete()) {
+                            tempFile.delete()
+                            error("تعذر استبدال ملف النموذج السابق")
+                        }
                     }
+
                     if (!tempFile.renameTo(targetFile)) {
+                        Log.d("ModelViewModel", "Rename failed, falling back to copy")
                         tempFile.copyTo(targetFile, overwrite = true)
                         tempFile.delete()
                     }
+
+                    Log.d("ModelViewModel", "Model import successful. Final file exists: ${targetFile.exists()}, size: ${targetFile.length()}")
                     true
                 }
                 if (success) {
@@ -217,9 +236,127 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
                     _statusEvent.value = StatusEvent.Success("تم استيراد ${model.displayName} بنجاح")
                 }
             } catch (e: Exception) {
+                Log.e("ModelViewModel", "Failed to import model: ${model.id}", e)
                 _statusEvent.value = StatusEvent.Error("فشل استيراد النموذج: ${e.message}")
             }
         }
+    }
+
+    fun setupModel(uri: Uri) {
+        val model = _selectedModel.value ?: return
+        viewModelScope.launch {
+            _setupState.value = ModelSetupState.Validating
+            _statusEvent.value = StatusEvent.Info("جاري التحقق من ملف النموذج...")
+            
+            try {
+                // 1. Validation
+                val fileName = getFileName(uri)
+                if (fileName != null && !modelManager.isModelFileExtensionValid(fileName)) {
+                    _setupState.value = ModelSetupState.Error("الملف المختار ليس نموذجاً مدعوماً. اختر ملفاً بصيغة .litertlm", "Invalid extension: $fileName")
+                    return@launch
+                }
+
+                // 2. Copying
+                _setupState.value = ModelSetupState.Copying
+                _statusEvent.value = StatusEvent.Info("جاري حفظ النموذج محلياً...")
+                
+                val success = withContext(Dispatchers.IO) {
+                    val targetFile = modelManager.modelFile(model)
+                    val tempFile = modelManager.tempModelFile(model)
+                    
+                    tempFile.parentFile?.mkdirs()
+                    if (tempFile.exists()) tempFile.delete()
+
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: error("تعذر فتح ملف النموذج المختار")
+
+                    if (tempFile.length() < ModelManager.MIN_MODEL_SIZE_BYTES) {
+                        tempFile.delete()
+                        error("ملف النموذج صغير جداً. تأكد من اكتمال التحميل.")
+                    }
+
+                    if (targetFile.exists() && !targetFile.delete()) {
+                        tempFile.delete()
+                        error("تعذر استبدال ملف النموذج السابق")
+                    }
+
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                    }
+                    true
+                }
+
+                if (success) {
+                    refreshModelState()
+                    
+                    // 3. Loading
+                    _setupState.value = ModelSetupState.Loading
+                    _statusEvent.value = StatusEvent.Info("جاري تشغيل النموذج تلقائياً...")
+                    
+                    loadModelInternal(model)
+                }
+            } catch (e: Exception) {
+                Log.e("ModelViewModel", "Setup failed", e)
+                _setupState.value = ModelSetupState.Error("فشل إعداد النموذج: ${e.message}", e.stackTraceToString())
+                _statusEvent.value = StatusEvent.Error("فشل إعداد النموذج")
+            }
+        }
+    }
+
+    private suspend fun loadModelInternal(model: SupportedModel) {
+        try {
+            withContext(Dispatchers.IO) {
+                textInferenceEngine?.unload()
+            }
+            textInferenceEngine = null
+            
+            val newEngine = LiteRtLmInferenceEngine()
+            val backend = _inferenceBackend.value ?: "cpu"
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    newEngine.load(
+                        modelManager.modelPath(model),
+                        getApplication<Application>().cacheDir.absolutePath,
+                        backend
+                    )
+                }
+            }
+
+            if (result.isSuccess) {
+                textInferenceEngine = newEngine
+                loadedModelId = model.id
+                localEngineLastErrorMessage = null
+                _modelState.value = ModelState.Ready
+                _setupState.value = ModelSetupState.Ready(model.displayName)
+                _statusEvent.value = StatusEvent.Success("تم إعداد وتشغيل ${model.displayName}")
+            } else {
+                val error = result.exceptionOrNull()
+                localEngineLastErrorMessage = error?.message
+                val userMsg = "تعذر تشغيل النموذج. قد يكون الملف غير متوافق أو ذاكرة الجهاز غير كافية."
+                _setupState.value = ModelSetupState.Error(userMsg, error?.stackTraceToString())
+                _modelState.value = ModelState.Error(userMsg)
+            }
+        } catch (e: Exception) {
+            _setupState.value = ModelSetupState.Error("خطأ غير متوقع: ${e.message}", e.stackTraceToString())
+        }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        return try {
+            getApplication<Application>().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                cursor.getString(nameIndex)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    fun resetSetupState() {
+        _setupState.value = ModelSetupState.Idle
     }
 
     fun loadModel() {
@@ -304,6 +441,18 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshModelState() {
         val model = _selectedModel.value ?: return
+        
+        // Debug logging for all supported models
+        Log.d("ModelViewModel", "--- Model State Refresh ---")
+        ModelManager.SUPPORTED_MODELS.forEach { m ->
+            val file = modelManager.modelFile(m)
+            Log.d("ModelViewModel", "Model: ${m.id} (${m.displayName})")
+            Log.d("ModelViewModel", "  Path: ${file.absolutePath}")
+            Log.d("ModelViewModel", "  Exists: ${file.exists()}")
+            Log.d("ModelViewModel", "  Size: ${file.length()} bytes")
+        }
+        Log.d("ModelViewModel", "---------------------------")
+
         if (modelManager.isModelImported(model.id)) {
             if (isLoaded(model)) {
                 _modelState.value = ModelState.Ready
@@ -487,4 +636,13 @@ sealed class ModelState {
     data object Loading : ModelState()
     data object Ready : ModelState()
     data class Error(val message: String) : ModelState()
+}
+
+sealed class ModelSetupState {
+    data object Idle : ModelSetupState()
+    data object Validating : ModelSetupState()
+    data object Copying : ModelSetupState()
+    data object Loading : ModelSetupState()
+    data class Ready(val modelName: String) : ModelSetupState()
+    data class Error(val userMessage: String, val technicalMessage: String?) : ModelSetupState()
 }

@@ -14,12 +14,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Add
+ codex/improve-chat-usability
 import androidx.compose.material.icons.filled.Stop
+
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.automirrored.filled.Send
+ main
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,10 +34,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+ codex/improve-chat-usability
+
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Size
+ main
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -135,6 +147,13 @@ fun MessageBubble(message: ChatMessage) {
                         )
                     )
                 }
+            }
+
+            if (!isUser) {
+                VerificationBadge(
+                    level = message.verificationLevel,
+                    sourceRequirement = message.sourceRequirement
+                )
             }
 
             if (!isUser && message.text.isNotBlank()) {
@@ -249,12 +268,17 @@ fun NabdPulseButton(
 @Composable
 fun ChatInputBar(
     onSendMessage: (String) -> Unit,
-    onAddAttachment: () -> Unit,
+    onAddAttachment: () -> Unit, codex/improve-chat-usability
     onCancelGeneration: () -> Unit,
     isBusy: Boolean = false
+
+    onAnalyzeImage: () -> Unit = {},
+    isEnabled: Boolean = true
+ main
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     
+ codex/improve-chat-usability
     val starters = remember {
         listOf(
             "اقترح علي فكرة تطبيق مميزة",
@@ -278,6 +302,12 @@ fun ChatInputBar(
             submitText()
         } else {
             text = starters.random()
+
+    val handleSend = {
+        if (text.isNotBlank() && isEnabled) {
+            onSendMessage(text)
+            text = ""
+ main
         }
     }
 
@@ -285,18 +315,34 @@ fun ChatInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
+ codex/improve-chat-usability
             .alpha(if (isBusy) 0.85f else 1f),
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFFF5F5F5),
         shadowElevation = 0.dp
+
+            .shadow(8.dp, RoundedCornerShape(32.dp))
+            .alpha(if (isEnabled) 1f else 0.7f),
+        shape = RoundedCornerShape(32.dp),
+        color = Color.White
+ main
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+ codex/improve-chat-usability
             IconButton(onClick = onAddAttachment, enabled = !isBusy) {
                 Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF666666))
+
+            IconButton(onClick = onAddAttachment, enabled = isEnabled) {
+                Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF757575))
+            }
+            
+            IconButton(onClick = onAnalyzeImage, enabled = isEnabled) {
+                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = Color(0xFF757575))
+ main
             }
 
             BasicTextField(
@@ -304,6 +350,7 @@ fun ChatInputBar(
                 onValueChange = { text = it },
                 modifier = Modifier
                     .weight(1f)
+ codex/improve-chat-usability
                     .padding(horizontal = 8.dp)
                     .heightIn(min = 24.dp, max = 120.dp),
                 enabled = true,
@@ -315,13 +362,30 @@ fun ChatInputBar(
                 ),
                 minLines = 1,
                 maxLines = 4,
+
+                    .padding(horizontal = 12.dp),
+                enabled = isEnabled,
+                textStyle = TextStyle(
+                    fontSize = 16.sp, 
+                    color = Color(0xFF1A1A1A),
+                    textDirection = TextDirection.Rtl
+                ),
+ main
                 decorationBox = { innerTextField ->
                     if (text.isEmpty()) {
-                        Text("اكتب رسالة...", color = Color.Gray, fontSize = 16.sp)
+                        Text(
+                            "اكتب رسالتك...", 
+                            color = Color.Gray, 
+                            fontSize = 16.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Start,
+                            style = TextStyle(textDirection = TextDirection.Rtl)
+                        )
                     }
                     innerTextField()
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+ codex/improve-chat-usability
                 keyboardActions = KeyboardActions(onSend = { 
                     submitText()
                 })
@@ -338,6 +402,25 @@ fun ChatInputBar(
                     isActive = text.isNotBlank(),
                     modifier = Modifier.padding(horizontal = 4.dp),
                     isEnabled = true
+
+                keyboardActions = KeyboardActions(onSend = { handleSend() })
+            )
+
+            val sendEnabled = isEnabled && text.isNotBlank()
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(if (sendEnabled) Color(0xFFFF5A5F) else Color(0xFFEEEEEE))
+                    .clickable(enabled = sendEnabled) { handleSend() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send, 
+                    contentDescription = "إرسال", 
+                    tint = if (sendEnabled) Color.White else Color.Gray,
+                    modifier = Modifier.size(20.dp)
+ main
                 )
             }
         }

@@ -4,20 +4,27 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.content.res.ColorStateList
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import com.example.localqwen.document.PdfSettings
 import com.example.localqwen.memory.MemoryStore
+import com.example.localqwen.ui.compose.NabdSettingsScreen
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
-class SettingsActivity : AppCompatActivity() {
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.localqwen.viewmodel.ModelSetupState
+import com.example.localqwen.ui.compose.ModelSetupWizardSheet
+import com.example.localqwen.ui.dev.ModelRuntimeDevScreen
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
+ codex/improve-chat-usability
     private lateinit var mainContainer: LinearLayout
     private lateinit var tvStatus: TextView
     private lateinit var tvModel: TextView
@@ -25,8 +32,12 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvIndex: TextView
     private lateinit var tvVersion: TextView
 
+class SettingsActivity : AppCompatActivity() {
+ main
+
     private var currentModelDescription: String = ""
     private var currentModelStatus: String = ""
+    private var currentModelGemma3Status: String = ""
     private var currentModelE2bStatus: String = ""
     private var currentModelE4bStatus: String = ""
     private var currentModelVisionStatus: String = ""
@@ -41,12 +52,15 @@ class SettingsActivity : AppCompatActivity() {
     private var currentSessionTitle: String = ""
     private var appVersion: String = ""
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_settings)
+        
+        val modelViewModel = androidx.lifecycle.ViewModelProvider(this)[com.example.localqwen.viewmodel.ModelViewModel::class.java]
 
         currentModelDescription = intent.getStringExtra(EXTRA_MODEL_DESCRIPTION).orEmpty()
         currentModelStatus = intent.getStringExtra(EXTRA_MODEL_STATUS).orEmpty()
+        currentModelGemma3Status = intent.getStringExtra(EXTRA_MODEL_GEMMA3_STATUS).orEmpty()
         currentModelE2bStatus = intent.getStringExtra(EXTRA_MODEL_E2B_STATUS).orEmpty()
         currentModelE4bStatus = intent.getStringExtra(EXTRA_MODEL_E4B_STATUS).orEmpty()
         currentModelVisionStatus = intent.getStringExtra(EXTRA_MODEL_VISION_STATUS).orEmpty()
@@ -60,6 +74,7 @@ class SettingsActivity : AppCompatActivity() {
         currentSessionTitle = intent.getStringExtra(EXTRA_SESSION_TITLE).orEmpty()
         appVersion = intent.getStringExtra(EXTRA_APP_VERSION).orEmpty()
 
+ codex/improve-chat-usability
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         mainContainer = findViewById(R.id.sectionMainSettings)
         tvStatus = findViewById(R.id.tvSettingsStatusValue)
@@ -147,6 +162,74 @@ class SettingsActivity : AppCompatActivity() {
             badge = "محلي"
         ) {
             showToolsDialog()
+
+        val modelPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.GetContent()
+        ) { uri: android.net.Uri? ->
+            uri?.let { modelViewModel.setupModel(it) }
+        }
+
+        setContent {
+            val modelState by modelViewModel.modelState.observeAsState(com.example.localqwen.viewmodel.ModelState.NotImported)
+            val setupState by modelViewModel.setupState.observeAsState(ModelSetupState.Idle)
+            var showDevMode by remember { mutableStateOf(false) }
+
+            if (showDevMode) {
+                ModelRuntimeDevScreen(onBackClick = { showDevMode = false })
+            } else {
+                NabdSettingsScreen(
+                    appVersion = appVersion,
+                    modelDescription = currentModelDescription,
+                    modelStatus = currentModelStatus,
+                    modelState = modelState,
+                    onBackClick = { finish() },
+                    onAccountClick = { showAccountAppDialog() },
+                    onModelsClick = { showModelsDialog() },
+                    onDocumentsClick = { showDocumentsSearchDialog() },
+                    onChatsClick = { showConversationsDialog() },
+                    onToolsClick = { showToolsDialog() },
+                    onTermsClick = {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("شروط الخدمة")
+                            .setMessage("شروط الخدمة الخاصة بتطبيق نبض (سيتم إضافتها لاحقاً).")
+                            .setPositiveButton("حسناً", null)
+                            .show()
+                    },
+                    onPrivacyClick = { finishWithAction(ACTION_PRIVACY_POLICY) },
+                    onModelSettingsClick = { showModelsDialog() },
+                    onCheckUpdatesClick = {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("التحقق من التحديثات")
+                            .setMessage("أنت تستخدم أحدث إصدار متاح.")
+                            .setPositiveButton("حسناً", null)
+                            .show()
+                    },
+                    onSetupModel = { modelPickerLauncher.launch("*/*") },
+                    onLoadModel = { modelViewModel.loadModel() },
+                    onDevModeClick = { showDevMode = true }
+                )
+            }
+
+            if (setupState !is ModelSetupState.Idle) {
+                ModalBottomSheet(
+                    onDismissRequest = { modelViewModel.resetSetupState() },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ) {
+                    ModelSetupWizardSheet(
+                        setupState = setupState,
+                        onDismiss = { modelViewModel.resetSetupState() },
+                        onRetry = { 
+                            modelViewModel.resetSetupState()
+                            modelPickerLauncher.launch("*/*") 
+                        },
+                        onStartChat = { 
+                            modelViewModel.resetSetupState()
+                            finish()
+                        }
+                    )
+                }
+            }
+ main
         }
     }
 
@@ -159,6 +242,7 @@ class SettingsActivity : AppCompatActivity() {
             "مساعدة نبض",
             "ما الجديد في نبض\nآخر تحسينات النسخة التجريبية",
             "إرسال ملاحظة للمطور\nاكتب مشكلة أو اقتراحًا للمساعدة في تحسين نبض",
+            "إنشاء تقرير اختبار Gemma\nللتأكد من نظام تشخيص الأخطاء",
             "حول نبض",
             "سياسة الخصوصية",
             "نسخ تقرير بيتا"
@@ -177,9 +261,10 @@ class SettingsActivity : AppCompatActivity() {
                     3 -> finishWithAction(ACTION_HELP)
                     4 -> finishWithAction(ACTION_WHATS_NEW)
                     5 -> finishWithAction(ACTION_SEND_FEEDBACK)
-                    6 -> finishWithAction(ACTION_ABOUT)
-                    7 -> finishWithAction(ACTION_PRIVACY_POLICY)
-                    8 -> finishWithAction(ACTION_COPY_BETA_REPORT)
+                    6 -> finishWithAction(ACTION_TRIGGER_TEST_REPORT)
+                    7 -> finishWithAction(ACTION_ABOUT)
+                    8 -> finishWithAction(ACTION_PRIVACY_POLICY)
+                    9 -> finishWithAction(ACTION_COPY_BETA_REPORT)
                 }
             }
             .show()
@@ -187,10 +272,16 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showModelsDialog() {
         val items = arrayOf(
+            "Gemma 3 Multimodal (${currentModelGemma3Status.ifBlank { "غير مستورد" }})",
             "Gemma E2B (${currentModelE2bStatus.ifBlank { "غير مستورد" }})",
             "Gemma E4B (${currentModelE4bStatus.ifBlank { "غير مستورد" }})",
+ codex/improve-chat-usability
             "نموذج الرؤية (${currentModelVisionStatus.ifBlank { "غير مستورد" }})",
             "نموذج التضمين (${embeddingModelStatus.ifBlank { "غير مستورد" }})",
+
+            "نموذج الرؤية الإضافي (FastVLM)",
+            "نموذج التضمين",
+ main
             "فحص الجاهزية\nتحقق من النماذج والمساحة قبل التشغيل",
             "دليل استيراد النماذج\nشرح سريع لاختيار واستيراد النماذج",
             "تشخيص نموذج الذكاء"
@@ -199,6 +290,7 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle("النماذج")
             .setItems(items) { _, which ->
                 when (which) {
+ codex/improve-chat-usability
                     0 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
                     1 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
                     2 -> {
@@ -208,14 +300,22 @@ class SettingsActivity : AppCompatActivity() {
                                 message = "يمكنك استيراده مرة أخرى لاحقًا من ملف النموذج.",
                                 action = ACTION_DELETE_VISION_MODEL
                             )
+
+                    0 -> finishWithAction(ACTION_MANAGE_MODEL_GEMMA3)
+                    1 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
+                    2 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
+                    3 -> {
+                         if (currentModelVisionStatus.startsWith("مستورد")) {
+                            finishWithAction(ACTION_DELETE_VISION_MODEL)
+ main
                         } else {
                             finishWithAction(ACTION_IMPORT_VISION_MODEL)
                         }
                     }
-                    3 -> showEmbeddingModelSubDialog()
-                    4 -> finishWithAction(ACTION_READINESS_CHECK)
-                    5 -> finishWithAction(ACTION_MODEL_IMPORT_HELP)
-                    6 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
+                    4 -> showEmbeddingModelSubDialog()
+                    5 -> finishWithAction(ACTION_READINESS_CHECK)
+                    6 -> finishWithAction(ACTION_MODEL_IMPORT_HELP)
+                    7 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
                 }
             }
             .show()
@@ -471,6 +571,7 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+ codex/improve-chat-usability
     private fun addOptionRow(
         container: LinearLayout,
         iconRes: Int,
@@ -519,6 +620,8 @@ class SettingsActivity : AppCompatActivity() {
         container.addView(row)
     }
 
+
+ main
     private fun finishWithAction(action: String, value: String? = null) {
         val intent = Intent().putExtra(EXTRA_ACTION, action)
         if (value != null) intent.putExtra(EXTRA_VALUE, value)
@@ -531,6 +634,7 @@ class SettingsActivity : AppCompatActivity() {
         const val EXTRA_VALUE = "settings_value"
         const val EXTRA_MODEL_DESCRIPTION = "model_description"
         const val EXTRA_MODEL_STATUS = "model_status"
+        const val EXTRA_MODEL_GEMMA3_STATUS = "model_gemma3_status"
         const val EXTRA_MODEL_E2B_STATUS = "model_e2b_status"
         const val EXTRA_MODEL_E4B_STATUS = "model_e4b_status"
         const val EXTRA_MODEL_VISION_STATUS = "model_vision_status"
@@ -545,6 +649,7 @@ class SettingsActivity : AppCompatActivity() {
 
         const val ACTION_SELECT_MODEL = "select_model"
         const val ACTION_IMPORT_MODEL = "import_model"
+        const val ACTION_MANAGE_MODEL_GEMMA3 = "manage_model_gemma3"
         const val ACTION_MANAGE_MODEL_E2B = "manage_model_e2b"
         const val ACTION_MANAGE_MODEL_E4B = "manage_model_e4b"
         const val ACTION_IMPORT_VISION_MODEL = "import_vision_model"
@@ -572,6 +677,7 @@ class SettingsActivity : AppCompatActivity() {
         const val ACTION_COPY_BETA_REPORT = "copy_beta_report"
         const val ACTION_WHATS_NEW = "whats_new"
         const val ACTION_SEND_FEEDBACK = "send_feedback"
+        const val ACTION_TRIGGER_TEST_REPORT = "trigger_test_report"
         const val ACTION_TOGGLE_MEMORY = "toggle_memory"
         const val ACTION_SHOW_MEMORY = "show_memory"
         const val ACTION_CLEAR_MEMORY = "clear_memory"
@@ -583,6 +689,7 @@ class SettingsActivity : AppCompatActivity() {
             context: Context,
             modelDescription: String,
             modelStatus: String,
+            modelGemma3Status: String,
             modelE2bStatus: String,
             modelE4bStatus: String,
             modelVisionStatus: String,
@@ -598,6 +705,7 @@ class SettingsActivity : AppCompatActivity() {
             return Intent(context, SettingsActivity::class.java)
                 .putExtra(EXTRA_MODEL_DESCRIPTION, modelDescription)
                 .putExtra(EXTRA_MODEL_STATUS, modelStatus)
+                .putExtra(EXTRA_MODEL_GEMMA3_STATUS, modelGemma3Status)
                 .putExtra(EXTRA_MODEL_E2B_STATUS, modelE2bStatus)
                 .putExtra(EXTRA_MODEL_E4B_STATUS, modelE4bStatus)
                 .putExtra(EXTRA_MODEL_VISION_STATUS, modelVisionStatus)

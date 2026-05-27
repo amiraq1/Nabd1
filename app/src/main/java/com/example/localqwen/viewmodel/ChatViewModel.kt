@@ -24,12 +24,15 @@ import com.example.localqwen.document.DocumentStore
 import com.example.localqwen.document.LocalDocument
 import com.example.localqwen.engine.NabdInferenceEngine
 import com.example.localqwen.prompt.NabdSystemPrompt
+import com.example.localqwen.verification.VerificationClassifier
+import com.example.localqwen.verification.VerificationPromptBuilder
 import com.example.localqwen.rag.EmbeddingEngine
 import com.example.localqwen.rag.EmbeddingStore
 import com.example.localqwen.rag.RagMode
 import com.example.localqwen.rag.RetrievedChunk
 import com.example.localqwen.rag.SemanticRetriever
 import com.example.localqwen.rag.TextChunker
+import com.example.localqwen.engine.GemmaImageAnalyzer
 import com.example.localqwen.work.PdfProcessingWorker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -47,8 +50,113 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.example.localqwen.data.SecurePreferences
+import com.example.localqwen.diagnostics.NabdDiagnosticLogger
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
+
+    private var imageAnalyzer: GemmaImageAnalyzer? = null
+    
+    private val _lastErrorReportFile = MutableLiveData<File?>(null)
+    val lastErrorReportFile: LiveData<File?> = _lastErrorReportFile
+
+    fun clearErrorReport() {
+        _lastErrorReportFile.value = null
+    }
+
+    fun triggerTestReport() {
+        val context = getApplication<Application>()
+        val reportFile = NabdDiagnosticLogger.writeGemmaErrorReport(
+            context,
+            NabdDiagnosticLogger.GemmaErrorContext(
+                stage = "manual_test",
+                modelPath = "test_path/model.litertlm",
+                tempImagePath = "test_path/temp.jpg",
+                promptLength = 10,
+                exception = Exception("هذا تقرير اختبار يدوي للتأكد من نظام التشخيص")
+            ),
+            isTest = true
+        )
+        _lastErrorReportFile.value = reportFile
+    }
+
+    fun analyzeImageWithGemma(uri: Uri, question: String) {
+        val context = getApplication<Application>()
+        _isGenerating.value = true
+        _statusEvent.value = StatusEvent.Info("جاري تحليل الصورة...")
+        _lastErrorReportFile.value = null
+        
+        // Add the user message immediately
+        addChatMessage(ChatMessage(role = Role.USER, text = "[صورة مرفقة]\n$question"))
+        val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
+        addChatMessage(assistantMessage)
+        _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = true)
+        
+        viewModelScope.launch {
+            var modelPath = "unknown"
+            try {
+                if (imageAnalyzer == null) {
+                    imageAnalyzer = GemmaImageAnalyzer(context)
+                    // Ensure the model path is valid. 
+                    val modelManager = com.example.localqwen.model.ModelManager(context)
+                    val model = modelManager.getModelById("gemma_3n_e2b_it")
+                    if (model == null || !modelManager.isModelImported(model.id)) {
+                        _statusEvent.value = StatusEvent.Error("النموذج المطلوب غير متوفر.")
+                        _isGenerating.value = false
+                        return@launch
+                    }
+                    modelPath = modelManager.modelPath(model)
+                    imageAnalyzer?.loadModel(modelPath)
+                }
+                
+                val output = StringBuilder()
+                withContext(Dispatchers.IO) {
+                    imageAnalyzer?.analyzeImage(uri, question)?.collect { chunk ->
+                        output.append(chunk)
+                        val updatedMessage = assistantMessage.copy(text = cleanForDisplay(output.toString()))
+                        chatMessages[chatMessages.lastIndex] = updatedMessage
+                        withContext(Dispatchers.Main) {
+                            _messages.value = chatMessages.toList()
+                            _scrollToBottom.value = true
+                        }
+                    }
+                }
+                
+                lastAssistantResponse = cleanForDisplay(output.toString(), preserveMarkdown = true)
+                saveActiveSessionDebounced()
+                _statusEvent.value = StatusEvent.Success("اكتمل التحليل")
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Image analysis failed", e)
+                
+                // Generate technical report
+                val reportFile = NabdDiagnosticLogger.writeGemmaErrorReport(
+                    context,
+                    NabdDiagnosticLogger.GemmaErrorContext(
+                        stage = imageAnalyzer?.currentStage ?: "init",
+                        modelPath = modelPath,
+                        tempImagePath = imageAnalyzer?.lastTempImagePath,
+                        promptLength = question.length,
+                        exception = e
+                    )
+                )
+                _lastErrorReportFile.value = reportFile
+                
+                val errorMsg = if (reportFile != null) 
+                    "تعذر تشغيل النموذج. تم إنشاء ملف تشخيص يمكنك مشاركته للمساعدة في الإصلاح." 
+                    else "حدث خطأ أثناء تحليل الصورة."
+                
+                _statusEvent.value = StatusEvent.Error(errorMsg)
+                val updatedMessage = assistantMessage.copy(text = "⚠️ $errorMsg")
+                chatMessages[chatMessages.lastIndex] = updatedMessage
+                _messages.value = chatMessages.toList()
+            } finally {
+                _isGenerating.value = false
+                _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = false)
+                imageAnalyzer?.unload()
+                imageAnalyzer = null
+            }
+        }
+    }
+
 
     private val preferences = SecurePreferences.get(application)
     private val db = NabdDatabase.getInstance(application)
@@ -388,6 +496,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 _isPreparingContext.value = false
 
+ codex/improve-chat-usability
                 try {
                     engine?.resetConversation()
                 } catch (_: Exception) {
@@ -400,6 +509,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     status = contextResult.generationStatus,
                     autoTitle = chatMessages.count { it.role == Role.USER } == 1,
                     firstUserMessage = input
+
+            // Verification Engine Integration
+            val verificationDecision = VerificationClassifier.classify(input)
+            val verificationInstruction = if (VerificationPromptBuilder.shouldInjectInstruction(verificationDecision)) {
+                VerificationPromptBuilder.buildInstruction(verificationDecision)
+            } else null
+            
+            Log.d("NabdVerification", "Query: $input")
+            Log.d("NabdVerification", "Level: ${verificationDecision.level}")
+            Log.d("NabdVerification", "Reason: ${verificationDecision.reason}")
+            if (verificationInstruction != null) {
+                Log.d("NabdVerification", "Instruction Injected: Yes")
+            }
+
+            // Store verification decision in the assistant message for UI
+            withContext(Dispatchers.Main) {
+                if (activeAssistantMessageIndex != -1 && activeAssistantMessageIndex < chatMessages.size) {
+                    chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(
+                        verificationLevel = verificationDecision.level,
+                        sourceRequirement = verificationDecision.sourceRequirement
+                    )
+                    _messages.value = chatMessages.toList()
+                }
+            }
+
+            val prompt = if (contextResult.context != null) {
+                NabdSystemPrompt.documentPrompt(
+                    userInput = input,
+                    contextChunks = contextResult.context,
+                    answerLengthInstruction = documentAnswerLengthInstruction,
+                    historyContext = historyContext,
+                    responseMode = responseMode,
+                    verificationInstruction = verificationInstruction
+                )
+            } else {
+                NabdSystemPrompt.normalChatPrompt(
+                    userInput = input, 
+                    historyContext = historyContext, 
+                    memoryContext = memoryContext,
+                    responseMode = responseMode,
+                    verificationInstruction = verificationInstruction
+ main
                 )
             } catch (_: CancellationException) {
                 finishStoppedGeneration()
