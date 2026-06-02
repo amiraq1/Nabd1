@@ -61,12 +61,14 @@ class MainActivity : ComponentActivity() {
         }
         
         setContent {
-            NabdApp(
-                chatViewModel = chatViewModel,
-                modelViewModel = modelViewModel,
-                memoryViewModel = memoryViewModel,
-                onOpenSettings = { openSettingsPage() }
-            )
+            com.example.localqwen.ui.compose.NabdTheme {
+                NabdApp(
+                    chatViewModel = chatViewModel,
+                    modelViewModel = modelViewModel,
+                    memoryViewModel = memoryViewModel,
+                    onOpenSettings = { openSettingsPage() }
+                )
+            }
         }
     }
 

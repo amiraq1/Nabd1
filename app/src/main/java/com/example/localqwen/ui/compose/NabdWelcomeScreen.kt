@@ -1,13 +1,12 @@
 package com.example.localqwen.ui.compose
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,8 +21,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -37,14 +38,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.localqwen.R
-
-// New Soft UI Colors for Nabd v0.2.0
-private val NabdSoftBg = Color(0xFFFFF9F9)
-private val NabdSoftPink = Color(0xFFFF5A5F)
-private val NabdCardBg = Color(0xFFFFFFFF)
-private val NabdTextPrimary = Color(0xFF1A1A1A)
-private val NabdTextSecondary = Color(0xFF757575)
-private val NabdSuccessGreen = Color(0xFF4CAF50)
+import kotlinx.coroutines.delay
 
 @Composable
 fun NabdWelcomeScreen(
@@ -64,6 +58,28 @@ fun NabdWelcomeScreen(
     var textInput by rememberSaveable { mutableStateOf("") }
     val scrollState = rememberScrollState()
 
+    // ── Staggered Entrance Animation ──
+    var showHeader by remember { mutableStateOf(false) }
+    var showWelcome by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
+    var showHero by remember { mutableStateOf(false) }
+    var showModel by remember { mutableStateOf(false) }
+    var showComposer by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        showHeader = true
+        delay(100)
+        showWelcome = true
+        delay(120)
+        showActions = true
+        delay(120)
+        showHero = true
+        delay(100)
+        showModel = true
+        delay(80)
+        showComposer = true
+    }
+
     fun submitText() {
         val message = textInput.trim()
         if (message.isNotEmpty() && !isBusy) {
@@ -75,84 +91,137 @@ fun NabdWelcomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NabdSoftBg)
+            .background(NabdColors.BgGradient)
     ) {
+        // ── Decorative Blurred Circles for Depth ──
+        Box(
+            modifier = Modifier
+                .size(200.dp)
+                .offset(x = (-60).dp, y = 80.dp)
+                .blur(80.dp)
+                .background(NabdColors.RoseGlow, CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 40.dp, y = 200.dp)
+                .blur(60.dp)
+                .background(NabdColors.AmberLight.copy(alpha = 0.3f), CircleShape)
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(bottom = 100.dp) // Space for composer
+                .padding(bottom = 100.dp)
         ) {
-            NabdHomeHeader(onShowMenu = onShowMenu)
-            
+            // ── Header ──
+            AnimatedVisibility(
+                visible = showHeader,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { -40 }
+            ) {
+                NabdHomeHeader(onShowMenu = onShowMenu)
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
-            
-            WelcomeSection(userName = "عمار")
-            
+
+            // ── Welcome Section ──
+            AnimatedVisibility(
+                visible = showWelcome,
+                enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { 60 }
+            ) {
+                WelcomeSection(userName = "عمار")
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
-            
-            QuickActionsGrid(
-                onDocumentClick = onAddAttachment,
-                onImageClick = onAnalyzeImage,
-                onChatClick = { onSendMessage("مرحباً نبض، كيف حالك؟") },
-                onSettingsClick = onModelBadgeClick
-            )
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            PulseHeroSection()
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            if (modelState is com.example.localqwen.viewmodel.ModelState.NotImported) {
-                ModelSetupCard(onImportClick = onSetupModel)
-            } else {
-                ModelStatusCard(
-                    modelName = activeModelName,
-                    modelState = modelState,
-                    onClick = onModelBadgeClick,
-                    onLoadClick = onLoadModel
+
+            // ── Quick Actions ──
+            AnimatedVisibility(
+                visible = showActions,
+                enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { 80 }
+            ) {
+                QuickActionsGrid(
+                    onDocumentClick = onAddAttachment,
+                    onImageClick = onAnalyzeImage,
+                    onChatClick = { onSendMessage("مرحباً نبض، كيف حالك؟") },
+                    onSettingsClick = onModelBadgeClick
                 )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // ── Pulse Hero ──
+            AnimatedVisibility(
+                visible = showHero,
+                enter = fadeIn(tween(600)) + scaleIn(tween(600), initialScale = 0.8f)
+            ) {
+                PulseHeroSection()
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // ── Model Status ──
+            AnimatedVisibility(
+                visible = showModel,
+                enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { 60 }
+            ) {
+                if (modelState is com.example.localqwen.viewmodel.ModelState.NotImported) {
+                    ModelSetupCard(onImportClick = onSetupModel)
+                } else {
+                    ModelStatusCard(
+                        modelName = activeModelName,
+                        modelState = modelState,
+                        onClick = onModelBadgeClick,
+                        onLoadClick = onLoadModel
+                    )
+                }
             }
         }
 
-        // Bottom Composer
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // ── Bottom Composer ──
+        AnimatedVisibility(
+            visible = showComposer,
+            enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { 80 },
+            modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            if (isBusy) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp),
-                    color = Color(0xFFFF5A5F),
-                    trackColor = Color.Transparent
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (isBusy) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp)),
+                        color = NabdColors.Rose,
+                        trackColor = NabdColors.RoseMuted.copy(alpha = 0.2f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = statusText,
+                        color = NabdColors.InkTertiary,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                NabdHomeComposer(
+                    value = textInput,
+                    onValueChange = { textInput = it },
+                    onSend = {
+                        if (textInput.isNotBlank()) {
+                            onSendMessage(textInput)
+                            textInput = ""
+                        }
+                    },
+                    onAttach = onAddAttachment,
+                    onImage = onAnalyzeImage
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = statusText,
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
             }
-            NabdHomeComposer(
-                value = textInput,
-                onValueChange = { textInput = it },
-                onSend = {
-                    if (textInput.isNotBlank()) {
-                        onSendMessage(textInput)
-                        textInput = ""
-                    }
-                },
-                onAttach = onAddAttachment,
-                onImage = onAnalyzeImage
-            )
         }
     }
 }
@@ -170,33 +239,34 @@ fun NabdHomeHeader(onShowMenu: () -> Unit) {
             onClick = onShowMenu,
             modifier = Modifier
                 .size(44.dp)
-                .background(Color.White, CircleShape)
-                .shadow(2.dp, CircleShape)
+                .shadow(6.dp, CircleShape, ambientColor = NabdColors.ShadowMedium, spotColor = NabdColors.ShadowSoft)
+                .background(NabdColors.CardElevated, CircleShape)
         ) {
-            Icon(Icons.Default.Menu, contentDescription = "القائمة", tint = NabdSoftPink)
+            Icon(Icons.Default.Menu, contentDescription = "القائمة", tint = NabdColors.Rose)
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_nabd),
                 contentDescription = null,
-                tint = NabdSoftPink,
+                tint = NabdColors.Rose,
                 modifier = Modifier.size(32.dp)
             )
             Text(
                 text = "نبض",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = NabdTextPrimary
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                color = NabdColors.Ink,
+                letterSpacing = 1.sp
             )
             Text(
                 text = "مساعدك الذكي المحلي",
                 fontSize = 10.sp,
-                color = NabdTextSecondary
+                color = NabdColors.InkSecondary,
+                letterSpacing = 0.5.sp
             )
         }
 
-        // Dummy box to balance the header (RTL)
         Box(modifier = Modifier.size(44.dp))
     }
 }
@@ -211,39 +281,42 @@ fun WelcomeSection(userName: String) {
     ) {
         Text(
             text = "أهلاً $userName!",
-            fontSize = 28.sp,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Black,
-            color = NabdTextPrimary,
-            textAlign = TextAlign.Center
+            color = NabdColors.Ink,
+            textAlign = TextAlign.Center,
+            letterSpacing = 0.5.sp
         )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Decorative Pulse Line
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Decorative Gradient Pulse Line
         Canvas(modifier = Modifier.size(width = 60.dp, height = 4.dp)) {
-            val width = size.width
-            val height = size.height
             drawRoundRect(
-                color = NabdSoftPink,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(NabdColors.Rose, NabdColors.Amber)
+                ),
                 size = size,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(height / 2)
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2)
             )
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         Text(
             text = "أنا مساعدك الذكي نبض.",
             fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = NabdTextPrimary,
+            fontWeight = FontWeight.SemiBold,
+            color = NabdColors.Ink,
             textAlign = TextAlign.Center
         )
-        
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         Text(
             text = "اسألني أي شيء، أنا هنا لمساعدتك.",
             fontSize = 14.sp,
-            color = NabdTextSecondary,
+            color = NabdColors.InkSecondary,
             textAlign = TextAlign.Center
         )
     }
@@ -266,6 +339,7 @@ fun QuickActionsGrid(
                 title = "اسأل عن مستند",
                 description = "لخّص أو اسأل عن أي مستند",
                 icon = Icons.Default.Description,
+                accentColor = NabdColors.Rose,
                 modifier = Modifier.weight(1f),
                 onClick = onDocumentClick
             )
@@ -274,6 +348,7 @@ fun QuickActionsGrid(
                 title = "حلّل صورة",
                 description = "افهم المحتوى داخل الصور",
                 icon = Icons.Default.Image,
+                accentColor = NabdColors.Amber,
                 modifier = Modifier.weight(1f),
                 onClick = onImageClick
             )
@@ -284,6 +359,7 @@ fun QuickActionsGrid(
                 title = "ابدأ محادثة",
                 description = "محادثة حرة مع نبض",
                 icon = Icons.Default.ChatBubble,
+                accentColor = NabdColors.Info,
                 modifier = Modifier.weight(1f),
                 onClick = onChatClick
             )
@@ -292,6 +368,7 @@ fun QuickActionsGrid(
                 title = "إعداد النموذج",
                 description = "تحكم في إعدادات النموذج",
                 icon = Icons.Default.Settings,
+                accentColor = NabdColors.Success,
                 modifier = Modifier.weight(1f),
                 onClick = onSettingsClick
             )
@@ -305,6 +382,7 @@ fun QuickActionCard(
     title: String,
     description: String,
     icon: ImageVector,
+    accentColor: Color = NabdColors.Rose,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -312,8 +390,9 @@ fun QuickActionCard(
         onClick = onClick,
         modifier = modifier
             .height(140.dp)
-            .shadow(4.dp, RoundedCornerShape(24.dp)),
-        color = NabdCardBg,
+            .shadow(8.dp, RoundedCornerShape(24.dp), ambientColor = NabdColors.ShadowMedium, spotColor = NabdColors.ShadowSoft)
+            .border(1.dp, NabdColors.CardBorder, RoundedCornerShape(24.dp)),
+        color = NabdColors.CardElevated,
         shape = RoundedCornerShape(24.dp)
     ) {
         Column(
@@ -325,25 +404,26 @@ fun QuickActionCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .background(NabdSoftPink.copy(alpha = 0.1f), CircleShape),
+                    .size(44.dp)
+                    .background(accentColor.copy(alpha = 0.08f), CircleShape)
+                    .border(1.dp, accentColor.copy(alpha = 0.15f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = NabdSoftPink, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                color = NabdTextPrimary,
+                color = NabdColors.Ink,
                 textAlign = TextAlign.Center,
                 style = TextStyle(textDirection = TextDirection.Rtl)
             )
             Text(
                 text = description,
                 fontSize = 10.sp,
-                color = NabdTextSecondary,
+                color = NabdColors.InkSecondary,
                 textAlign = TextAlign.Center,
                 lineHeight = 14.sp,
                 style = TextStyle(textDirection = TextDirection.Rtl)
@@ -355,59 +435,79 @@ fun QuickActionCard(
 @Composable
 fun PulseHeroSection() {
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.1f,
-        targetValue = 0.4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Alpha"
-    )
-    val pulseScale by infiniteTransition.animateFloat(
+
+    val ring1Scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.5f,
+        targetValue = 1.8f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
+            animation = tween(2500, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "Scale"
+        label = "Ring1"
     )
-
+    val ring2Scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, delayMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "Ring2"
+    )
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Glow"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(120.dp),
+            .height(140.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Animated Rings
+        // Background glow
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .blur(40.dp)
+                .background(NabdColors.Rose.copy(alpha = glowAlpha), CircleShape)
+        )
+
+        // Animated Ring 1
         Box(
             modifier = Modifier
                 .size(60.dp)
-                .graphicsLayer(scaleX = pulseScale, scaleY = pulseScale, alpha = 1f - pulseScale / 1.5f)
-                .border(2.dp, NabdSoftPink, CircleShape)
+                .graphicsLayer(scaleX = ring1Scale, scaleY = ring1Scale, alpha = 1f - ring1Scale / 1.8f)
+                .border(1.5.dp, NabdColors.Rose.copy(alpha = 0.6f), CircleShape)
         )
+
+        // Animated Ring 2
         Box(
             modifier = Modifier
-                .size(80.dp)
-                .graphicsLayer(scaleX = pulseScale * 0.8f, scaleY = pulseScale * 0.8f, alpha = pulseAlpha)
-                .background(NabdSoftPink.copy(alpha = 0.05f), CircleShape)
+                .size(60.dp)
+                .graphicsLayer(scaleX = ring2Scale, scaleY = ring2Scale, alpha = 1f - ring2Scale / 1.6f)
+                .border(1.dp, NabdColors.Amber.copy(alpha = 0.4f), CircleShape)
         )
-        
-        // Center Icon
+
+        // Center Icon — elevated with layered shadow
         Box(
             modifier = Modifier
-                .size(64.dp)
-                .shadow(8.dp, CircleShape)
-                .background(Color.White, CircleShape),
+                .size(68.dp)
+                .shadow(12.dp, CircleShape, ambientColor = NabdColors.Rose.copy(alpha = 0.2f))
+                .background(NabdColors.CardElevated, CircleShape)
+                .border(1.dp, NabdColors.CardBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_nabd),
                 contentDescription = null,
-                tint = NabdSoftPink,
-                modifier = Modifier.size(32.dp)
+                tint = NabdColors.Rose,
+                modifier = Modifier.size(34.dp)
             )
         }
     }
@@ -416,7 +516,7 @@ fun PulseHeroSection() {
 
 @Composable
 fun ModelStatusCard(
-    modelName: String, 
+    modelName: String,
     modelState: com.example.localqwen.viewmodel.ModelState,
     onClick: () -> Unit,
     onLoadClick: () -> Unit
@@ -424,6 +524,18 @@ fun ModelStatusCard(
     val isReady = modelState is com.example.localqwen.viewmodel.ModelState.Ready
     val isIdle = modelState is com.example.localqwen.viewmodel.ModelState.Idle
     val isLoading = modelState is com.example.localqwen.viewmodel.ModelState.Loading
+
+    // Animated status dot
+    val infiniteTransition = rememberInfiniteTransition(label = "StatusDot")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "DotAlpha"
+    )
 
     Box(
         modifier = Modifier
@@ -434,37 +546,44 @@ fun ModelStatusCard(
         Surface(
             onClick = onClick,
             modifier = Modifier
-                .shadow(2.dp, RoundedCornerShape(32.dp)),
-            color = NabdCardBg,
+                .shadow(8.dp, RoundedCornerShape(32.dp), ambientColor = NabdColors.ShadowMedium)
+                .border(1.dp, NabdColors.CardBorder, RoundedCornerShape(32.dp)),
+            color = NabdColors.CardElevated,
             shape = RoundedCornerShape(32.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        if (isReady) Icons.Default.CheckCircle else Icons.Default.Info,
-                        contentDescription = null,
-                        tint = if (isReady) NabdSuccessGreen else Color.Gray,
-                        modifier = Modifier.size(16.dp)
+                    // Animated Status Dot
+                    val dotColor = when {
+                        isReady -> NabdColors.Success
+                        isLoading -> NabdColors.Amber
+                        else -> NabdColors.InkTertiary
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .graphicsLayer(alpha = if (isLoading) dotAlpha else 1f)
+                            .background(dotColor, CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = modelName,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = NabdTextPrimary
+                        color = NabdColors.Ink
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when {
-                            isReady -> "• جاهز • آمن • محلي"
+                            isReady -> "🔒 آمن • 📱 محلي • ✅ جاهز"
                             isLoading -> "جاري التشغيل..."
                             isIdle -> "محمل محلياً • غير مشغل"
                             else -> "غير جاهز"
                         },
                         fontSize = 10.sp,
-                        color = if (isReady) NabdSuccessGreen else Color.Gray,
+                        color = if (isReady) NabdColors.Success else NabdColors.InkSecondary,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -473,9 +592,12 @@ fun ModelStatusCard(
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = onLoadClick,
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = NabdSoftPink),
+                        modifier = Modifier.fillMaxWidth().height(42.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NabdColors.Rose,
+                            contentColor = NabdColors.InkOnRose
+                        ),
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
@@ -483,7 +605,7 @@ fun ModelStatusCard(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("جاري البدء...", fontSize = 12.sp)
                         } else {
-                            Text("تشغيل النموذج", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("تشغيل النموذج", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -501,11 +623,23 @@ fun NabdHomeComposer(
     onAttach: () -> Unit,
     onImage: () -> Unit
 ) {
+    val sendEnabled = value.isNotBlank()
+    val sendColor by animateColorAsState(
+        targetValue = if (sendEnabled) NabdColors.Rose else Color(0xFFF0ECEB),
+        animationSpec = tween(300),
+        label = "SendColor"
+    )
+    val sendIconColor by animateColorAsState(
+        targetValue = if (sendEnabled) Color.White else NabdColors.InkTertiary,
+        animationSpec = tween(300),
+        label = "SendIconColor"
+    )
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(12.dp, RoundedCornerShape(32.dp)),
-        color = Color.White,
+            .shadow(16.dp, RoundedCornerShape(32.dp), ambientColor = NabdColors.ShadowMedium),
+        color = NabdColors.CardElevated,
         shape = RoundedCornerShape(32.dp)
     ) {
         Row(
@@ -514,17 +648,17 @@ fun NabdHomeComposer(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onAttach) {
-                Icon(Icons.Default.AttachFile, contentDescription = "إرفاق ملف", tint = NabdTextSecondary)
+                Icon(Icons.Default.AttachFile, contentDescription = "إرفاق ملف", tint = NabdColors.InkSecondary)
             }
             IconButton(onClick = onImage) {
-                Icon(Icons.Default.Image, contentDescription = "صورة", tint = NabdTextSecondary)
+                Icon(Icons.Default.Image, contentDescription = "صورة", tint = NabdColors.InkSecondary)
             }
-            
+
             TextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("اكتب رسالتك...", fontSize = 14.sp) },
+                placeholder = { Text("اكتب رسالتك...", fontSize = 14.sp, color = NabdColors.InkTertiary) },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -534,24 +668,24 @@ fun NabdHomeComposer(
                 ),
                 textStyle = TextStyle(
                     fontSize = 15.sp,
+                    color = NabdColors.Ink,
                     textDirection = TextDirection.Rtl
                 ),
                 maxLines = 3
             )
 
-            val sendEnabled = value.isNotBlank()
             Box(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(if (sendEnabled) NabdSoftPink else Color(0xFFEEEEEE))
+                    .background(sendColor)
                     .clickable(enabled = sendEnabled) { onSend() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.AutoMirrored.Filled.Send, 
-                    contentDescription = "إرسال", 
-                    tint = if (sendEnabled) NabdSoftPink else Color.Gray,
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "إرسال",
+                    tint = sendIconColor,
                     modifier = Modifier.size(20.dp)
                 )
             }

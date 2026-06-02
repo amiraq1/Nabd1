@@ -80,7 +80,7 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(2.dp),
-                    color = Color(0xFFFF5A5F),
+                    color = NabdColors.Rose,
                     trackColor = Color.Transparent
                 )
             }

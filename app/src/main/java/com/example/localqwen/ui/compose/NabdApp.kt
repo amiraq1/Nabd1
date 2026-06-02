@@ -371,7 +371,7 @@ fun NabdApp(
                     LinearProgressIndicator(
                         progress = { performanceState.ramUsagePercent },
                         modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                        color = if (performanceState.ramUsagePercent > 0.8f) Color.Red else Color(0xFFFF5A5F),
+                        color = if (performanceState.ramUsagePercent > 0.8f) Color.Red else NabdColors.Rose,
                         trackColor = Color(0xFFEEEEEE)
                     )
 
@@ -424,7 +424,7 @@ fun NabdApp(
                             onClick = { modelViewModel.setResponseMode(mode) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSelected) Color(0xFFFF5A5F) else Color(0xFFEEEEEE),
+                                containerColor = if (isSelected) NabdColors.Rose else Color(0xFFEEEEEE),
                                 contentColor = if (isSelected) Color.White else Color.Black
                             ),
                             shape = RoundedCornerShape(8.dp),
@@ -460,7 +460,7 @@ fun NabdApp(
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSelected) Color(0xFFFF5A5F) else Color(0xFFEEEEEE),
+                                containerColor = if (isSelected) NabdColors.Rose else Color(0xFFEEEEEE),
                                 contentColor = if (isSelected) Color.White else Color.Black
                             ),
                             shape = RoundedCornerShape(8.dp),
@@ -525,7 +525,7 @@ fun NabdApp(
                             showModelSheet = false
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        color = if (isSelected) Color(0xFFFF5A5F).copy(alpha = 0.1f) else Color.Transparent,
+                        color = if (isSelected) NabdColors.Rose.copy(alpha = 0.1f) else Color.Transparent,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
@@ -536,7 +536,7 @@ fun NabdApp(
                                 Text(
                                     model.displayName,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color(0xFFFF5A5F) else Color.Black,
+                                    color = if (isSelected) NabdColors.Rose else Color.Black,
                                     style = TextStyle(
                                         textDirection = TextDirection.Rtl,
                                         textAlign = TextAlign.Right
@@ -556,7 +556,7 @@ fun NabdApp(
                                 Icon(
                                     Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFFFF5A5F)
+                                    tint = NabdColors.Rose
                                 )
                             }
                         }

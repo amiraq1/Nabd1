@@ -31,7 +31,7 @@ class GemmaImageAnalyzer(private val context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 engine = LiteRtLmInferenceEngine()
-                engine?.load(modelPath, context.cacheDir.absolutePath, "cpu")
+                engine?.load(modelPath, context.cacheDir.absolutePath, "gpu")
                 Log.d("GemmaImageAnalyzer", "Model loaded successfully")
             } catch (e: Exception) {
                 Log.e("GemmaImageAnalyzer", "Model load failed", e)

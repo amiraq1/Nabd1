@@ -89,7 +89,7 @@ fun ModelImportProgress(state: ModelSetupState) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         CircularProgressIndicator(
             modifier = Modifier.size(48.dp),
-            color = Color(0xFFFF5A5F),
+            color = NabdColors.Rose,
             strokeWidth = 4.dp
         )
         Spacer(modifier = Modifier.height(24.dp))
@@ -153,7 +153,7 @@ fun ModelReadyState(modelName: String, onStartChat: () -> Unit) {
             onClick = onStartChat,
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5A5F))
+            colors = ButtonDefaults.buttonColors(containerColor = NabdColors.Rose)
         ) {
             Text("ابدأ المحادثة", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
@@ -205,7 +205,7 @@ fun ModelErrorState(userMessage: String, onRetry: () -> Unit, onShowTechDetails:
                 onClick = onRetry,
                 modifier = Modifier.weight(1.5f).height(48.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5A5F))
+                colors = ButtonDefaults.buttonColors(containerColor = NabdColors.Rose)
             ) {
                 Text("جرّب ملفاً آخر", fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
@@ -230,10 +230,10 @@ fun ModelSetupCard(onImportClick: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .background(Color(0xFFFF5A5F).copy(alpha = 0.1f), CircleShape),
+                        .background(NabdColors.Rose.copy(alpha = 0.1f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = Color(0xFFFF5A5F))
+                    Icon(Icons.Default.FileDownload, contentDescription = null, tint = NabdColors.Rose)
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
@@ -258,7 +258,7 @@ fun ModelSetupCard(onImportClick: () -> Unit) {
                 onClick = onImportClick,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5A5F))
+                colors = ButtonDefaults.buttonColors(containerColor = NabdColors.Rose)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))

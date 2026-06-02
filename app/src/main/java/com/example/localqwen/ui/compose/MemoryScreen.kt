@@ -122,7 +122,7 @@ fun ToolConfirmationDialog(
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = { Text(message) },
         confirmButton = {
-            Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5A5F))) {
+            Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = NabdColors.Rose)) {
                 Text("تأكيد", color = Color.White)
             }
         },

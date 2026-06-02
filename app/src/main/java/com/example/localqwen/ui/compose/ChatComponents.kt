@@ -3,6 +3,7 @@ package com.example.localqwen.ui.compose
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -31,7 +32,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -62,7 +64,7 @@ fun MessageBubble(message: ChatMessage) {
             contentAlignment = Alignment.Center
         ) {
             Surface(
-                color = if (isError) Color(0xFFFFEBEE) else Color(0xFFF5F5F5),
+                color = if (isError) NabdColors.ErrorLight else NabdColors.BubbleSystem,
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -76,7 +78,7 @@ fun MessageBubble(message: ChatMessage) {
                     Text(
                         text = message.text,
                         fontSize = 12.sp,
-                        color = if (isError) Color(0xFFD32F2F) else Color.Gray,
+                        color = if (isError) NabdColors.Error else NabdColors.InkSecondary,
                         style = TextStyle(
                             fontWeight = FontWeight.Medium,
                             textDirection = TextDirection.Rtl,
@@ -92,7 +94,7 @@ fun MessageBubble(message: ChatMessage) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp, horizontal = 4.dp), // Reduced from 12.dp to 4.dp
+            .padding(vertical = 6.dp, horizontal = 4.dp),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         val context = LocalContext.current
@@ -114,12 +116,32 @@ fun MessageBubble(message: ChatMessage) {
                             bottomEnd = if (isUser) 4.dp else 20.dp
                         )
                     )
-                    .background(if (isUser) Color(0xFFFF5A5F) else Color(0xFFF0F0F0))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp) // Dynamic max width (88% of screen)
+                    .then(
+                        if (isUser) {
+                            Modifier.background(
+                                Brush.linearGradient(
+                                    colors = listOf(NabdColors.Rose, NabdColors.RoseDark)
+                                )
+                            )
+                        } else {
+                            Modifier
+                                .background(NabdColors.BubbleAssistant)
+                                .border(
+                                    1.dp,
+                                    NabdColors.CardBorder,
+                                    RoundedCornerShape(
+                                        topStart = 20.dp,
+                                        topEnd = 20.dp,
+                                        bottomStart = 4.dp,
+                                        bottomEnd = 20.dp
+                                    )
+                                )
+                        }
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp)
             ) {
                 val cleanedText = remember(message.text) {
-                    // Collapse multiple newlines into one and perform basic Markdown cleanup
                     message.text
                         .replace(Regex("\\n{2,}"), "\n")
                         .replace("**", "")
@@ -131,12 +153,12 @@ fun MessageBubble(message: ChatMessage) {
                 SelectionContainer {
                     Text(
                         text = cleanedText,
-                        color = if (isUser) Color.White else Color(0xFF1A1A1A),
+                        color = if (isUser) NabdColors.InkOnRose else NabdColors.Ink,
                         fontSize = 15.sp,
-                        lineHeight = 22.sp,
+                        lineHeight = 24.sp,
                         style = TextStyle(
                             textDirection = TextDirection.Rtl,
-                            textAlign = TextAlign.Start // "Start" in RTL is Right
+                            textAlign = TextAlign.Start
                         )
                     )
                 }
@@ -162,7 +184,7 @@ fun MessageBubble(message: ChatMessage) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = "Copy",
-                        tint = Color.Gray.copy(alpha = 0.5f),
+                        tint = NabdColors.InkTertiary.copy(alpha = 0.6f),
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -180,11 +202,13 @@ fun MessageBubble(message: ChatMessage) {
 fun AssistantAvatar() {
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .background(Color(0xFFFF5A5F).copy(alpha = 0.1f), CircleShape),
+            .size(34.dp)
+            .shadow(4.dp, CircleShape, ambientColor = NabdColors.RoseGlow)
+            .background(NabdColors.RoseLight, CircleShape)
+            .border(1.dp, NabdColors.CardBorder, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Text("نبض", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF5A5F))
+        Text("نبض", fontSize = 9.sp, fontWeight = FontWeight.Black, color = NabdColors.Rose)
     }
 }
 
@@ -192,20 +216,21 @@ fun AssistantAvatar() {
 fun UserAvatar() {
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .background(Color(0xFFE0E0E0), CircleShape),
+            .size(34.dp)
+            .background(NabdColors.CardSubtle, CircleShape)
+            .border(1.dp, NabdColors.CardBorder, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Text("أنت", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF666666))
+        Text("أنت", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = NabdColors.InkSecondary)
     }
 }
 
 @Composable
 fun NabdPulseButton(
     onClick: () -> Unit,
-    isActive: Boolean, // Renamed from isEnabled to reflect "Send" state
+    isActive: Boolean,
     modifier: Modifier = Modifier,
-    isEnabled: Boolean = true // Overall clickability
+    isEnabled: Boolean = true
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val scale by infiniteTransition.animateFloat(
@@ -218,9 +243,8 @@ fun NabdPulseButton(
         label = "PulseScale"
     )
 
-    // Color is primary when active (text present), light gray when inactive (for starters)
-    val color = if (isActive) Color(0xFFFF5A5F) else Color(0xFFEEEEEE)
-    val contentColor = if (isActive) Color.White else Color(0xFF999999)
+    val color = if (isActive) NabdColors.Rose else Color(0xFFF0ECEB)
+    val contentColor = if (isActive) Color.White else NabdColors.InkTertiary
 
     Box(
         modifier = modifier
@@ -268,7 +292,7 @@ fun ChatInputBar(
     isEnabled: Boolean = true
 ) {
     var text by rememberSaveable { mutableStateOf("") }
-    
+
     fun submitText() {
         val message = text.trim()
         if (message.isNotEmpty() && !isBusy && isEnabled) {
@@ -277,14 +301,26 @@ fun ChatInputBar(
         }
     }
 
+    val sendEnabled = isEnabled && text.isNotBlank()
+    val sendBgColor by animateColorAsState(
+        targetValue = if (sendEnabled) NabdColors.Rose else Color(0xFFF0ECEB),
+        animationSpec = tween(300),
+        label = "SendBg"
+    )
+    val sendIconColor by animateColorAsState(
+        targetValue = if (sendEnabled) Color.White else NabdColors.InkTertiary,
+        animationSpec = tween(300),
+        label = "SendIcon"
+    )
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .shadow(8.dp, RoundedCornerShape(32.dp))
+            .shadow(12.dp, RoundedCornerShape(32.dp), ambientColor = NabdColors.ShadowMedium)
             .alpha(if (isEnabled) 1f else 0.7f),
         shape = RoundedCornerShape(32.dp),
-        color = Color.White
+        color = NabdColors.CardElevated
     ) {
         Row(
             modifier = Modifier
@@ -292,11 +328,11 @@ fun ChatInputBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onAddAttachment, enabled = isEnabled) {
-                Icon(Icons.Default.Add, contentDescription = "Attach", tint = Color(0xFF757575))
+                Icon(Icons.Default.Add, contentDescription = "Attach", tint = NabdColors.InkSecondary)
             }
-            
+
             IconButton(onClick = onAnalyzeImage, enabled = isEnabled) {
-                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = Color(0xFF757575))
+                Icon(Icons.Default.Image, contentDescription = "Image Analysis", tint = NabdColors.InkSecondary)
             }
 
             BasicTextField(
@@ -308,14 +344,14 @@ fun ChatInputBar(
                 enabled = isEnabled,
                 textStyle = TextStyle(
                     fontSize = 16.sp,
-                    color = Color(0xFF1A1A1A),
+                    color = NabdColors.Ink,
                     textDirection = TextDirection.Rtl
                 ),
                 decorationBox = { innerTextField ->
                     if (text.isEmpty()) {
                         Text(
-                            "اكتب رسالتك...", 
-                            color = Color.Gray, 
+                            "اكتب رسالتك...",
+                            color = NabdColors.InkTertiary,
                             fontSize = 16.sp,
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Start,
@@ -325,7 +361,7 @@ fun ChatInputBar(
                     innerTextField()
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { 
+                keyboardActions = KeyboardActions(onSend = {
                     submitText()
                 })
             )
@@ -336,19 +372,18 @@ fun ChatInputBar(
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
             } else {
-                val sendEnabled = isEnabled && text.isNotBlank()
                 Box(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(if (sendEnabled) Color(0xFFFF5A5F) else Color(0xFFEEEEEE))
+                        .background(sendBgColor)
                         .clickable(enabled = sendEnabled) { submitText() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.Send, 
-                        contentDescription = "إرسال", 
-                        tint = if (sendEnabled) Color.White else Color.Gray,
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "إرسال",
+                        tint = sendIconColor,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -362,11 +397,25 @@ private fun StopGenerationButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Pulsing animation for stop button
+    val infiniteTransition = rememberInfiniteTransition(label = "StopPulse")
+    val stopScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "StopScale"
+    )
+
     Box(
         modifier = modifier
             .size(48.dp)
+            .scale(stopScale)
             .clip(CircleShape)
-            .background(Color(0xFFFFE4E6))
+            .background(NabdColors.ErrorLight)
+            .border(1.dp, NabdColors.Error.copy(alpha = 0.2f), CircleShape)
             .clickable(
                 onClick = onClick,
                 interactionSource = remember { MutableInteractionSource() },
@@ -377,7 +426,7 @@ private fun StopGenerationButton(
         Icon(
             imageVector = Icons.Default.Stop,
             contentDescription = "إيقاف التوليد",
-            tint = Color(0xFFFF5A5F)
+            tint = NabdColors.Error
         )
     }
 }
@@ -385,7 +434,7 @@ private fun StopGenerationButton(
 @Composable
 fun TypingIndicator() {
     val infiniteTransition = rememberInfiniteTransition(label = "EkgTransition")
-    
+
     val alpha by infiniteTransition.animateFloat(
         initialValue = 0.3f,
         targetValue = 1f,
@@ -394,6 +443,17 @@ fun TypingIndicator() {
             repeatMode = RepeatMode.Reverse
         ),
         label = "EkgAlpha"
+    )
+
+    // Shimmer effect for text
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "Shimmer"
     )
 
     Box(
@@ -409,20 +469,32 @@ fun TypingIndicator() {
         ) {
             // Left Wave
             EkgWaveform(alpha = alpha, isMirrored = false)
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
+
             Text(
                 text = "نبض يكتب...",
                 fontSize = 13.sp,
-                color = Color(0xFFFF5252),
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                style = TextStyle(textDirection = TextDirection.Rtl)
+                style = TextStyle(
+                    textDirection = TextDirection.Rtl,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            NabdColors.Rose.copy(alpha = 0.5f),
+                            NabdColors.Rose,
+                            NabdColors.Amber,
+                            NabdColors.Rose,
+                            NabdColors.Rose.copy(alpha = 0.5f)
+                        ),
+                        start = Offset(shimmerOffset * 200f, 0f),
+                        end = Offset(shimmerOffset * 200f + 200f, 0f)
+                    )
+                )
             )
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
+
             // Right Wave
             EkgWaveform(alpha = alpha, isMirrored = true)
         }
@@ -435,7 +507,7 @@ fun EkgWaveform(alpha: Float, isMirrored: Boolean) {
         val width = size.width
         val height = size.height
         val centerY = height / 2
-        
+
         val path = Path().apply {
             if (!isMirrored) {
                 moveTo(0f, centerY)
@@ -460,7 +532,7 @@ fun EkgWaveform(alpha: Float, isMirrored: Boolean) {
 
         drawPath(
             path = path,
-            color = Color(0xFFFF5252).copy(alpha = alpha),
+            color = NabdColors.Rose.copy(alpha = alpha),
             style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
         )
     }
