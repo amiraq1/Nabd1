@@ -21,7 +21,7 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
             try {
                 unload()
 
-                val refs = LiteRtRefs()
+                val refs = getCachedRefs()
                 val backend = try {
                     val backendClassName = when (backendName.lowercase()) {
                         "gpu" -> "com.google.ai.edge.litertlm.Backend\$GPU"
@@ -30,7 +30,7 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                     }
                     Class.forName(backendClassName).getConstructor().newInstance()
                 } catch (e: Exception) {
-                    Log.e("LiteRtEngine", "Failed to load backend $backendName, falling back to CPU", e)
+                    Log.e(TAG, "Failed to load backend $backendName, falling back to CPU", e)
                     refs.cpuBackendClass.getConstructor().newInstance()
                 }
 
@@ -59,10 +59,20 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
 
     override suspend fun unload() {
         withContext(Dispatchers.IO) {
-            (conversation as? AutoCloseable)?.close()
-            conversation = null
-            (engine as? AutoCloseable)?.close()
-            engine = null
+            try {
+                (conversation as? AutoCloseable)?.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing conversation", e)
+            } finally {
+                conversation = null
+            }
+            try {
+                (engine as? AutoCloseable)?.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing engine", e)
+            } finally {
+                engine = null
+            }
         }
     }
 
@@ -72,7 +82,7 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
 
     override fun resetConversation() {
         val currentEngine = engine ?: return
-        val refs = LiteRtRefs()
+        val refs = getCachedRefs()
         try {
             (conversation as? AutoCloseable)?.close()
         } catch (_: Exception) {}
@@ -80,13 +90,13 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
     }
 
     override fun generate(prompt: String): Flow<String> {
-        val refs = LiteRtRefs()
+        val refs = getCachedRefs()
         val currentConversation = conversation ?: throw IllegalStateException("Engine not initialized")
         return refs.sendTextAsync(currentConversation, prompt).map { it.toString() }
     }
 
     override fun generateVision(imagePath: String, prompt: String): Flow<String> {
-        val refs = LiteRtRefs()
+        val refs = getCachedRefs()
         val currentConversation = conversation ?: throw IllegalStateException("Engine not initialized")
         val imageContent = refs.imageFileContentClass.getConstructor(String::class.java).newInstance(imagePath)
         val textContent = refs.textContentClass.getConstructor(String::class.java).newInstance(prompt)
@@ -101,20 +111,87 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
         return refs.sendContentsAsync(currentConversation, contents).map { it.toString() }
     }
 
+    /**
+     * Checks if the LiteRT API classes are available at runtime.
+     * Call this before attempting to load a model to get a clear diagnostic
+     * instead of a generic ClassNotFoundException.
+     *
+     * @return null if all classes are available, or a descriptive error message.
+     */
+    companion object {
+        private const val TAG = "LiteRtEngine"
+
+        private val REQUIRED_CLASSES = listOf(
+            "com.google.ai.edge.litertlm.Engine" to "LiteRT Engine",
+            "com.google.ai.edge.litertlm.EngineConfig" to "LiteRT EngineConfig",
+            "com.google.ai.edge.litertlm.Backend" to "LiteRT Backend",
+            "com.google.ai.edge.litertlm.Backend\$CPU" to "LiteRT CPU Backend",
+            "com.google.ai.edge.litertlm.Conversation" to "LiteRT Conversation",
+            "com.google.ai.edge.litertlm.ConversationConfig" to "LiteRT ConversationConfig",
+            "com.google.ai.edge.litertlm.Contents" to "LiteRT Contents",
+            "com.google.ai.edge.litertlm.Content" to "LiteRT Content",
+            "com.google.ai.edge.litertlm.Content\$Text" to "LiteRT Text Content",
+            "com.google.ai.edge.litertlm.Content\$ImageFile" to "LiteRT ImageFile Content"
+        )
+
+        /**
+         * Checks that all required LiteRT classes are present on the classpath.
+         * @return null if available, or a human-readable error string listing missing classes.
+         */
+        fun checkApiAvailability(): String? {
+            val missing = mutableListOf<String>()
+            for ((className, displayName) in REQUIRED_CLASSES) {
+                try {
+                    Class.forName(className)
+                } catch (_: ClassNotFoundException) {
+                    missing.add(displayName)
+                }
+            }
+            return if (missing.isEmpty()) {
+                null
+            } else {
+                "LiteRT API غير متوفر. الفئات المفقودة: ${missing.joinToString(", ")}"
+            }
+        }
+
+        /** Cached refs instance — avoids repeated reflection lookups. */
+        @Volatile
+        private var cachedRefs: LiteRtRefs? = null
+
+        private fun getCachedRefs(): LiteRtRefs {
+            return cachedRefs ?: synchronized(this) {
+                cachedRefs ?: LiteRtRefs().also { cachedRefs = it }
+            }
+        }
+    }
+
+    private fun getCachedRefs(): LiteRtRefs = Companion.getCachedRefs()
+
     private class LiteRtRefs {
-        val engineClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Engine")
-        val engineConfigClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.EngineConfig")
-        val backendClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Backend")
-        val cpuBackendClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Backend\$CPU")
-        val conversationClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Conversation")
-        val conversationConfigClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.ConversationConfig")
-        val contentsClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Contents")
-        val contentsCompanionClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Contents\$Companion")
-        val contentClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Content")
-        val textContentClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Content\$Text")
-        val imageFileContentClass: Class<*> = Class.forName("com.google.ai.edge.litertlm.Content\$ImageFile")
+        val engineClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Engine", "Engine")
+        val engineConfigClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.EngineConfig", "EngineConfig")
+        val backendClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Backend", "Backend")
+        val cpuBackendClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Backend\$CPU", "CPU Backend")
+        val conversationClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Conversation", "Conversation")
+        val conversationConfigClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.ConversationConfig", "ConversationConfig")
+        val contentsClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Contents", "Contents")
+        val contentsCompanionClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Contents\$Companion", "Contents.Companion")
+        val contentClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Content", "Content")
+        val textContentClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Content\$Text", "Content.Text")
+        val imageFileContentClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Content\$ImageFile", "Content.ImageFile")
         val contentsCompanion: Any = contentsClass.getField("Companion").get(null)
             ?: error("LiteRT Contents companion is unavailable")
+
+        private fun resolveClass(name: String, displayName: String): Class<*> {
+            return try {
+                Class.forName(name)
+            } catch (e: ClassNotFoundException) {
+                throw IllegalStateException(
+                    "فئة LiteRT المطلوبة '$displayName' غير متوفرة. " +
+                    "تأكد من أن مكتبة litertlm مضمّنة في التطبيق. ($name)", e
+                )
+            }
+        }
 
         fun createConversation(engine: Any): Any {
             return engineClass
@@ -166,3 +243,4 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
         }
     }
 }
+

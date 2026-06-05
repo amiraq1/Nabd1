@@ -36,10 +36,9 @@ object NabdDiagnosticLogger {
             report.appendLine()
             
             report.appendLine("--- Device Info ---")
-            report.appendLine("Manufacturer: ${Build.MANUFACTURER}")
-            report.appendLine("Model: ${Build.MODEL}")
+            report.appendLine("Manufacturer: ${redact(Build.MANUFACTURER)}")
+            report.appendLine("Model: ${redact(Build.MODEL)}")
             report.appendLine("SDK: ${Build.VERSION.SDK_INT}")
-            report.appendLine("Package: ${context.packageName}")
             val pInfo = try { context.packageManager.getPackageInfo(context.packageName, 0) } catch (e: Exception) { null }
             report.appendLine("Version: ${pInfo?.versionName ?: "unknown"}")
             report.appendLine()
@@ -123,5 +122,14 @@ object NabdDiagnosticLogger {
             "${context.packageName}.fileprovider",
             file
         )
+    }
+
+    /**
+     * Redacts a string for privacy: shows first character + asterisks.
+     * Example: "Samsung" → "S******"
+     */
+    private fun redact(value: String): String {
+        if (value.isBlank() || value.length <= 1) return "***"
+        return "${value.first()}${"*".repeat(value.length - 1)}"
     }
 }

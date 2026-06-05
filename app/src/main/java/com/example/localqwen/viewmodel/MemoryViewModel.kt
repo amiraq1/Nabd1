@@ -144,15 +144,43 @@ class MemoryViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun containsSensitiveMemory(text: String): Boolean {
         val normalized = text.lowercase(Locale.getDefault())
-        return SENSITIVE_MEMORY_KEYWORDS.any { keyword ->
-            normalized.contains(keyword)
+        // Check keyword blacklist
+        if (SENSITIVE_MEMORY_KEYWORDS.any { keyword -> normalized.contains(keyword) }) {
+            return true
         }
+        // Check regex patterns for structured sensitive data
+        return SENSITIVE_MEMORY_PATTERNS.any { pattern -> pattern.containsMatchIn(normalized) }
     }
 
     companion object {
         const val MAX_MEMORY_ITEM_CHARS = 300
+
         private val SENSITIVE_MEMORY_KEYWORDS = listOf(
-            "password", "كلمة المرور", "الرقم السري", "token", "api key", "بطاقة", "حساب بنكي"
+            // English keywords
+            "password", "passwd", "token", "api key", "api_key", "apikey",
+            "secret", "secret key", "private key", "access key",
+            "credit card", "debit card", "cvv", "cvc", "expiry",
+            "ssn", "social security",
+            // Arabic keywords — passwords & secrets
+            "كلمة المرور", "كلمة السر", "الرقم السري", "رمز الدخول", "رمز التحقق",
+            // Arabic keywords — financial
+            "بطاقة", "حساب بنكي", "رقم الحساب", "رقم البطاقة", "بطاقة ائتمان",
+            "بطاقة ائتمانية", "فيزا", "ماستركارد",
+            // Arabic keywords — identity
+            "رقم الهوية", "رقم الجواز", "جواز السفر", "رقم الإقامة"
+        )
+
+        private val SENSITIVE_MEMORY_PATTERNS = listOf(
+            // Credit card numbers: 13-19 digits, optionally separated by spaces or dashes
+            Regex("\\b(?:\\d[ -]?){13,19}\\b"),
+            // National ID / Iqama: exactly 10 digits
+            Regex("\\b\\d{10}\\b"),
+            // IBAN: 2 letters + 2 digits + up to 30 alphanumeric
+            Regex("\\b[A-Z]{2}\\d{2}[A-Z0-9]{4,30}\\b", RegexOption.IGNORE_CASE),
+            // Email addresses
+            Regex("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"),
+            // Phone numbers with country code (e.g., +966XXXXXXXXX, +1XXXXXXXXXX)
+            Regex("\\+\\d{1,3}[\\s-]?\\d{7,14}")
         )
     }
 }
