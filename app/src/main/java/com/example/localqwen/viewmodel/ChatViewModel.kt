@@ -668,9 +668,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             val snapshot = output.toString()
                             lastRenderedLength = output.length
                             withContext(Dispatchers.Main) {
-                                val cleaned = cleanForDisplay(snapshot, preserveMarkdown = true)
-                                if (cleaned.isNotEmpty()) {
-                                    updateAssistantMessageInternal(cleaned, renderMarkdown = false)
+                                if (!snapshot.trimStart().startsWith("{")) {
+                                    val cleaned = cleanForDisplay(snapshot, preserveMarkdown = true)
+                                    if (cleaned.isNotEmpty()) {
+                                        updateAssistantMessageInternal(cleaned, renderMarkdown = false)
+                                    }
                                 }
                             }
                         }
@@ -678,7 +680,39 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val finalRaw = output.toString()
+            val finalRaw = output.toString().trim()
+            
+            if (finalRaw.startsWith("{") && finalRaw.endsWith("}")) {
+                try {
+                    val jsonObj = org.json.JSONObject(finalRaw)
+                    if (jsonObj.has("tool") && jsonObj.getString("tool") == "phone") {
+                        val intent = jsonObj.optString("intent", "")
+                        val phoneManager = com.example.localqwen.tools.PhoneToolManager(getApplication())
+                        val result = when(intent) {
+                            "battery" -> phoneManager.getBatteryStatus().content
+                            "device_info" -> phoneManager.getDeviceInfo().content
+                            "storage" -> phoneManager.getStorageInfo().content
+                            "installed_apps" -> phoneManager.getInstalledAppsCount().content
+                            else -> "إجراء غير معروف: $intent"
+                        }
+                        
+                        val systemResponse = "🔧 **نتيجة أداة النظام:**\n$result"
+                        withContext(Dispatchers.Main) {
+                            updateAssistantMessageInternal(systemResponse, renderMarkdown = true)
+                            _currentTps.value = 0f
+                        }
+                        
+                        lastAssistantResponse = systemResponse
+                        lastResponseCharCount = systemResponse.length
+                        lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
+                        saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
+                        _statusEvent.value = StatusEvent.Success("تم التنفيذ بنجاح")
+                        return
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "Failed to parse tool JSON", e)
+                }
+            }
             
             val finalText = cleanForDisplay(finalRaw, preserveMarkdown = true).ifBlank { 
                 if (finalRaw.isNotBlank()) finalRaw.trim() else "(لم يتم توليد رد)"

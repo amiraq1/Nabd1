@@ -31,6 +31,22 @@ object NabdSystemPrompt {
         الدقة أهم من سرعة الإجابة.
     """
 
+    const val TOOL_ROUTING_INSTRUCTION = """
+        لديك القدرة على استخدام أدوات النظام لتنفيذ مهام معينة.
+        إذا طلب المستخدم منك أحد الإجراءات التالية، يجب عليك ألا ترد بنص عادي، بل يجب أن ترد بصيغة JSON فقط:
+        
+        1. قراءة نسبة البطارية: {"tool": "phone", "intent": "battery"}
+        2. قراءة معلومات الجهاز: {"tool": "phone", "intent": "device_info"}
+        3. مساحة التخزين: {"tool": "phone", "intent": "storage"}
+        4. عدد التطبيقات: {"tool": "phone", "intent": "installed_apps"}
+        
+        مثال:
+        المستخدم: "كم نسبة شحن جوالي؟"
+        نبض: {"tool": "phone", "intent": "battery"}
+        
+        تحذير: إذا قررت استخدام أداة، لا تضف أي نص أو شرح قبل أو بعد الـ JSON.
+    """
+
     fun baseIdentityPrompt(responseMode: String = "balanced"): String {
         val modeInstruction = when(responseMode) {
             "fast" -> "أجب باختصار شديد ومباشرة (كلمات قليلة). قلل التنسيق والترحيب. ركز على السرعة."
@@ -173,6 +189,9 @@ object NabdSystemPrompt {
             ${baseIdentityPrompt(responseMode)}
             أجب مباشرة على رسالة المستخدم.
 $memorySection$verificationSection
+
+            ---
+            $TOOL_ROUTING_INSTRUCTION
 
             ---
             $NABD_ANSWER_QUALITY_GUARD

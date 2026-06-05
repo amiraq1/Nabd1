@@ -45,4 +45,11 @@ class PhoneToolManager(private val context: Context) {
         val content = "إجمالي التخزين: $totalSpace جيجابايت\nالمساحة المتوفرة: $freeSpace جيجابايت"
         return PhoneToolResult("التخزين", content)
     }
+
+    fun getInstalledAppsCount(): PhoneToolResult {
+        val pm = context.packageManager
+        val packages = pm.getInstalledPackages(0)
+        val content = "يوجد ${packages.size} تطبيقاً مثبتاً على جهازك."
+        return PhoneToolResult("التطبيقات المثبتة", content)
+    }
 }
