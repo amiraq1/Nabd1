@@ -10,30 +10,25 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.localqwen"
+        // SCORCHED-EARTH: Unique ID to bypass device-level package/DEX caching (MIUI/HyperOS)
+        applicationId = "com.nabd.ai.local.mtp_engine"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.2.0-beta"
+        versionCode = 6
+        versionName = "0.2.15-isolated"
     }
 
     buildTypes {
         release {
-            // SET TO FALSE: Completely bypass R8 code shrinking to ensure 
-            // all Reflection-based LiteRT classes are preserved.
-            val isMinifyEnabledToggle = false 
+            // DEFENSIVE: Force-disable minification to ensure LiteRT Reflection is 100% stable
+            isMinifyEnabled = false
+            isShrinkResources = false
             
-            isMinifyEnabled = isMinifyEnabledToggle
-            isShrinkResources = isMinifyEnabledToggle
-            
-            // Forces the Release build to use the Debug signing config 
-            // for fast manual installation without explicit keystores.
+            // Fast manual installation signature
             signingConfig = signingConfigs.getByName("debug")
             
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                file("proguard-rules.pro") // Rigid path scoping for the rules file
-            )
+            // Remove ProGuard dependency to ensure absolutely zero stripping in this isolation cycle
+            // setProguardFiles(emptyList())
         }
     }
 
