@@ -78,36 +78,9 @@ class SettingsActivity : AppCompatActivity() {
             if (showDevMode) {
                 ModelRuntimeDevScreen(onBackClick = { showDevMode = false })
             } else {
-                NabdSettingsScreen(
-                    appVersion = appVersion,
-                    modelDescription = currentModelDescription,
-                    modelStatus = currentModelStatus,
-                    modelState = modelState,
+                com.example.localqwen.ui.settings.SettingsScreen(
                     onBackClick = { finish() },
-                    onAccountClick = { showAccountAppDialog() },
-                    onModelsClick = { showModelsDialog() },
-                    onDocumentsClick = { showDocumentsSearchDialog() },
-                    onChatsClick = { showConversationsDialog() },
-                    onToolsClick = { showToolsDialog() },
-                    onTermsClick = {
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle("شروط الخدمة")
-                            .setMessage("شروط الخدمة الخاصة بتطبيق نبض (سيتم إضافتها لاحقاً).")
-                            .setPositiveButton("حسناً", null)
-                            .show()
-                    },
-                    onPrivacyClick = { finishWithAction(ACTION_PRIVACY_POLICY) },
-                    onModelSettingsClick = { showModelsDialog() },
-                    onCheckUpdatesClick = {
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle("التحقق من التحديثات")
-                            .setMessage("أنت تستخدم أحدث إصدار متاح.")
-                            .setPositiveButton("حسناً", null)
-                            .show()
-                    },
-                    onSetupModel = { modelPickerLauncher.launch("*/*") },
-                    onLoadModel = { modelViewModel.loadModel() },
-                    onDevModeClick = { showDevMode = true }
+                    onImportModelClick = { modelPickerLauncher.launch("*/*") }
                 )
             }
 

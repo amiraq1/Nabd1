@@ -151,16 +151,6 @@ fun NabdWelcomeScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // ── Pulse Hero ──
-            AnimatedVisibility(
-                visible = showHero,
-                enter = fadeIn(tween(600)) + scaleIn(tween(600), initialScale = 0.8f)
-            ) {
-                PulseHeroSection()
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
             // ── Model Status ──
             AnimatedVisibility(
                 visible = showModel,
@@ -246,12 +236,6 @@ fun NabdHomeHeader(onShowMenu: () -> Unit) {
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_nabd),
-                contentDescription = null,
-                tint = NabdColors.Rose,
-                modifier = Modifier.size(32.dp)
-            )
             Text(
                 text = "نبض",
                 fontSize = 20.sp,
@@ -431,88 +415,6 @@ fun QuickActionCard(
         }
     }
 }
-
-@Composable
-fun PulseHeroSection() {
-    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
-
-    val ring1Scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Ring1"
-    )
-    val ring2Scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2500, delayMillis = 800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Ring2"
-    )
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.15f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "Glow"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(140.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Background glow
-        Box(
-            modifier = Modifier
-                .size(120.dp)
-                .blur(40.dp)
-                .background(NabdColors.Rose.copy(alpha = glowAlpha), CircleShape)
-        )
-
-        // Animated Ring 1
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .graphicsLayer(scaleX = ring1Scale, scaleY = ring1Scale, alpha = 1f - ring1Scale / 1.8f)
-                .border(1.5.dp, NabdColors.Rose.copy(alpha = 0.6f), CircleShape)
-        )
-
-        // Animated Ring 2
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .graphicsLayer(scaleX = ring2Scale, scaleY = ring2Scale, alpha = 1f - ring2Scale / 1.6f)
-                .border(1.dp, NabdColors.Amber.copy(alpha = 0.4f), CircleShape)
-        )
-
-        // Center Icon — elevated with layered shadow
-        Box(
-            modifier = Modifier
-                .size(68.dp)
-                .shadow(12.dp, CircleShape, ambientColor = NabdColors.Rose.copy(alpha = 0.2f))
-                .background(NabdColors.CardElevated, CircleShape)
-                .border(1.dp, NabdColors.CardBorder, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_nabd),
-                contentDescription = null,
-                tint = NabdColors.Rose,
-                modifier = Modifier.size(34.dp)
-            )
-        }
-    }
-}
-
 
 @Composable
 fun ModelStatusCard(

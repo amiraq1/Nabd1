@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.animation.animateColorAsState
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.Role
 

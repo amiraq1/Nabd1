@@ -47,6 +47,11 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                         refs.cpuBackendClass.getConstructor().newInstance()
                     }
 
+                    val maxContextTokens = 1024
+                    val numThreads = 4
+
+                    Log.d(TAG, "Initializing engine with maxContextTokens=$maxContextTokens, numThreads=$numThreads, backend=$backendName")
+
                     val config = refs.engineConfigClass
                         .getConstructor(
                             String::class.java,
@@ -57,7 +62,15 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                             Integer::class.java,
                             String::class.java
                         )
-                        .newInstance(modelPath, backend, backend, backend, null, null, cacheDir)
+                        .newInstance(
+                            modelPath, 
+                            backend, // generationBackend
+                            backend, // prefillBackend
+                            backend, // kvCacheBackend
+                            Integer.valueOf(maxContextTokens), 
+                            Integer.valueOf(numThreads), 
+                            cacheDir
+                        )
 
                     val newEngine = refs.engineClass.getConstructor(refs.engineConfigClass).newInstance(config)
                     refs.engineClass.getMethod("initialize").invoke(newEngine)
