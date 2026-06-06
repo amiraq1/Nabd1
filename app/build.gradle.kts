@@ -26,6 +26,10 @@ android {
             isMinifyEnabled = isMinifyEnabledToggle
             isShrinkResources = isMinifyEnabledToggle
             
+            // Forces the Release build to use the Debug signing config 
+            // for fast manual installation without explicit keystores.
+            signingConfig = signingConfigs.getByName("debug")
+            
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 file("proguard-rules.pro") // Rigid path scoping for the rules file
