@@ -56,6 +56,27 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
 
                     Log.d(TAG, "Initializing engine with maxContextTokens=$maxContextTokens, numThreads=$numThreads, backend=$backendName")
 
+                    // --- Dynamic MTP / Speculative Decoding Hunt ---
+                    try {
+                        val builder = refs.optionsBuilderClass.getConstructor().newInstance()
+                        val mtpMethod = refs.optionsBuilderClass.methods.firstOrNull { 
+                            it.name == "setEnableSpeculativeDecoding" || it.name == "setEnableMtp"
+                        }
+                        
+                        if (mtpMethod != null) {
+                            // MTP methods usually take a Boolean parameter
+                            if (mtpMethod.parameterTypes.firstOrNull() == Boolean::class.java || 
+                                mtpMethod.parameterTypes.firstOrNull() == Boolean::class.javaPrimitiveType) {
+                                mtpMethod.invoke(builder, true)
+                                Log.d("Nabd_MTP", "Speculative Decoding activated successfully via ${mtpMethod.name}")
+                            }
+                        } else {
+                            Log.d("Nabd_MTP", "Speculative Decoding methods not found in SDK metadata. Falling back to standard mode.")
+                        }
+                    } catch (mtpError: Exception) {
+                        Log.w("Nabd_MTP", "MTP Activation failed (non-critical): ${mtpError.message}")
+                    }
+
                     // Reflection Audit: LiteRT-LM EngineConfig usually follows:
                     // (modelPath, genBackend, prefBackend, kvBackend, maxContext, numThreads, cacheDir)
                     // We will explicitly search for the matching constructor or use a safer instantiation.
@@ -259,6 +280,8 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
         val cpuBackendClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Backend\$CPU", "CPU Backend")
         val conversationClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Conversation", "Conversation")
         val conversationConfigClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.ConversationConfig", "ConversationConfig")
+        val optionsClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.InferenceEngineOptions", "InferenceEngineOptions")
+        val optionsBuilderClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.InferenceEngineOptions\$Builder", "InferenceEngineOptions.Builder")
         val contentsClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Contents", "Contents")
         val contentsCompanionClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Contents\$Companion", "Contents.Companion")
         val contentClass: Class<*> = resolveClass("com.google.ai.edge.litertlm.Content", "Content")
