@@ -2,7 +2,7 @@ package com.example.localqwen.engine
 
 import kotlinx.coroutines.flow.Flow
 
-interface NabdInferenceEngine {
+interface NabdInferenceEngine : AutoCloseable {
     @Throws(Exception::class)
     suspend fun load(modelPath: String, cacheDir: String)
 
@@ -20,4 +20,8 @@ interface NabdInferenceEngine {
     fun generateVision(imagePath: String, prompt: String): Flow<String>
 
     fun resetConversation() {}
+
+    override fun close() {
+        // Implementers should handle synchronous cleanup or provide a suspend version if needed.
+    }
 }

@@ -3,12 +3,20 @@ package com.example.localqwen.engine
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Array as ReflectArray
 import java.lang.reflect.InvocationTargetException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LiteRtLmInferenceEngine : NabdInferenceEngine {
+    private val engineLock = Mutex()
+    private val isReleased = AtomicBoolean(false)
     private var engine: Any? = null
     private var conversation: Any? = null
 
@@ -17,47 +25,59 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
     }
 
     override suspend fun load(modelPath: String, cacheDir: String, backendName: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                unload()
+        engineLock.withLock {
+            if (isReleased.get()) {
+                Log.e(TAG, "Attempted to load model on a released engine")
+                return
+            }
+            withContext(Dispatchers.IO) {
+                try {
+                    unloadInternal()
 
-                val refs = getCachedRefs()
-                val backend = try {
-                    val backendClassName = when (backendName.lowercase()) {
-                        "gpu" -> "com.google.ai.edge.litertlm.Backend\$GPU"
-                        "npu" -> "com.google.ai.edge.litertlm.Backend\$NPU"
-                        else -> "com.google.ai.edge.litertlm.Backend\$CPU"
+                    val refs = getCachedRefs()
+                    val backend = try {
+                        val backendClassName = when (backendName.lowercase()) {
+                            "gpu" -> "com.google.ai.edge.litertlm.Backend\$GPU"
+                            "npu" -> "com.google.ai.edge.litertlm.Backend\$NPU"
+                            else -> "com.google.ai.edge.litertlm.Backend\$CPU"
+                        }
+                        Class.forName(backendClassName).getConstructor().newInstance()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to load backend $backendName, falling back to CPU", e)
+                        refs.cpuBackendClass.getConstructor().newInstance()
                     }
-                    Class.forName(backendClassName).getConstructor().newInstance()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to load backend $backendName, falling back to CPU", e)
-                    refs.cpuBackendClass.getConstructor().newInstance()
+
+                    val config = refs.engineConfigClass
+                        .getConstructor(
+                            String::class.java,
+                            refs.backendClass,
+                            refs.backendClass,
+                            refs.backendClass,
+                            Integer::class.java,
+                            Integer::class.java,
+                            String::class.java
+                        )
+                        .newInstance(modelPath, backend, backend, backend, null, null, cacheDir)
+
+                    val newEngine = refs.engineClass.getConstructor(refs.engineConfigClass).newInstance(config)
+                    refs.engineClass.getMethod("initialize").invoke(newEngine)
+                    engine = newEngine
+                    conversation = refs.createConversation(newEngine)
+                } catch (error: Throwable) {
+                    unloadInternal()
+                    throw error.unwrapInvocation()
                 }
-
-                val config = refs.engineConfigClass
-                    .getConstructor(
-                        String::class.java,
-                        refs.backendClass,
-                        refs.backendClass,
-                        refs.backendClass,
-                        Integer::class.java,
-                        Integer::class.java,
-                        String::class.java
-                    )
-                    .newInstance(modelPath, backend, backend, backend, null, null, cacheDir)
-
-                val newEngine = refs.engineClass.getConstructor(refs.engineConfigClass).newInstance(config)
-                refs.engineClass.getMethod("initialize").invoke(newEngine)
-                engine = newEngine
-                conversation = refs.createConversation(newEngine)
-            } catch (error: Throwable) {
-                unload()
-                throw error.unwrapInvocation()
             }
         }
     }
 
     override suspend fun unload() {
+        engineLock.withLock {
+            unloadInternal()
+        }
+    }
+
+    private suspend fun unloadInternal() {
         withContext(Dispatchers.IO) {
             try {
                 (conversation as? AutoCloseable)?.close()
@@ -76,28 +96,50 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
         }
     }
 
+    override fun close() {
+        if (isReleased.compareAndSet(false, true)) {
+            runBlocking {
+                unload()
+            }
+        }
+    }
+
     override fun isReady(): Boolean {
-        return engine != null && conversation != null
+        return !isReleased.get() && engine != null && conversation != null
     }
 
     override fun resetConversation() {
-        val currentEngine = engine ?: return
-        val refs = getCachedRefs()
-        try {
-            (conversation as? AutoCloseable)?.close()
-        } catch (_: Exception) {}
-        conversation = refs.createConversation(currentEngine)
+        runBlocking {
+            engineLock.withLock {
+                val currentEngine = engine ?: return@withLock
+                val refs = getCachedRefs()
+                try {
+                    (conversation as? AutoCloseable)?.close()
+                } catch (_: Exception) {}
+                conversation = refs.createConversation(currentEngine)
+            }
+        }
     }
 
     override fun generate(prompt: String): Flow<String> {
+        if (isReleased.get() || engine == null) return emptyFlow()
+        
         val refs = getCachedRefs()
-        val currentConversation = conversation ?: throw IllegalStateException("Engine not initialized")
-        return refs.sendTextAsync(currentConversation, prompt).map { it.toString() }
+        val currentConversation = conversation ?: return emptyFlow()
+        
+        return refs.sendTextAsync(currentConversation, prompt)
+            .map { it.toString() }
+            .onCompletion {
+                // Potential hook for cleanup if needed per-generation
+            }
     }
 
     override fun generateVision(imagePath: String, prompt: String): Flow<String> {
+        if (isReleased.get() || engine == null) return emptyFlow()
+        
         val refs = getCachedRefs()
-        val currentConversation = conversation ?: throw IllegalStateException("Engine not initialized")
+        val currentConversation = conversation ?: return emptyFlow()
+        
         val imageContent = refs.imageFileContentClass.getConstructor(String::class.java).newInstance(imagePath)
         val textContent = refs.textContentClass.getConstructor(String::class.java).newInstance(prompt)
         val contentArray = ReflectArray.newInstance(refs.contentClass, 2)

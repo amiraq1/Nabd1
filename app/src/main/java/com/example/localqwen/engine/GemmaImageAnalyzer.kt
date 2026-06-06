@@ -16,7 +16,7 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.util.UUID
 
-class GemmaImageAnalyzer(private val context: Context) {
+class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
 
     private var engine: LiteRtLmInferenceEngine? = null
     
@@ -41,19 +41,19 @@ class GemmaImageAnalyzer(private val context: Context) {
         }
     }
 
-    fun unload() {
-        Log.d(TAG, "Unloading model...")
+    override fun close() {
+        Log.d(TAG, "Closing image analyzer engine...")
         try {
-            engine?.let {
-                kotlinx.coroutines.runBlocking { it.unload() }
-            }
+            engine?.close()
         } catch (e: Exception) {
-            Log.w(TAG, "Error during model unload", e)
+            Log.w(TAG, "Error during engine close", e)
         } finally {
             engine = null
         }
-        Log.d(TAG, "Model unloaded")
+        Log.d(TAG, "Image analyzer engine closed")
     }
+
+    fun unload() = close()
 
     suspend fun analyzeImage(imageUri: Uri, question: String): Flow<String> {
         return withContext(Dispatchers.IO) {

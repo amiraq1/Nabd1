@@ -603,13 +603,30 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var wasLoadedBeforeBackground = false
+
+    fun onAppBackgrounded() {
+        if (textInferenceEngine?.isReady() == true) {
+            Log.d("ModelViewModel", "App backgrounded, unloading model to free RAM")
+            wasLoadedBeforeBackground = true
+            unloadModel()
+        }
+    }
+
+    fun onAppForegrounded() {
+        if (wasLoadedBeforeBackground) {
+            Log.d("ModelViewModel", "App foregrounded, reloading model (Warm Start)")
+            wasLoadedBeforeBackground = false
+            loadModel()
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         performanceMonitorJob?.cancel()
         embeddingEngine.close()
-        viewModelScope.launch(Dispatchers.IO) {
-            textInferenceEngine?.unload()
-        }
+        textInferenceEngine?.close()
+        textInferenceEngine = null
     }
 
     companion object {

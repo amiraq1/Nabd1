@@ -26,6 +26,8 @@ import android.app.Activity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 
+import com.example.localqwen.diagnostics.ModelLifecycleObserver
+
 class MainActivity : ComponentActivity() {
     private val chatViewModel: ChatViewModel by viewModels()
     private val modelViewModel: ModelViewModel by viewModels()
@@ -38,6 +40,9 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Memory Management: Observe lifecycle to unload/reload model
+        lifecycle.addObserver(ModelLifecycleObserver(modelViewModel))
         
         chatViewModel.loadActiveSession()
 

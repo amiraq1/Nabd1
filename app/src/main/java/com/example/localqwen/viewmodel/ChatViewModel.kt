@@ -947,6 +947,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         saveSessionJob?.cancel()
         generationJob?.cancel()
+        imageAnalyzer?.close()
     }
 
     companion object {
