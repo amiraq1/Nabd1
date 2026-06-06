@@ -20,9 +20,23 @@
 }
 -dontwarn kotlinx.coroutines.**
 
-# --- Google LiteRT-LM ---
--keep class com.google.ai.edge.litertlm.** { *; }
+# --- Google LiteRT-LM (Strict Reflection Protection) ---
+-keep class com.google.ai.edge.litertlm.** {
+    <fields>;
+    <methods>;
+}
+-keep class com.google.ai.edge.litertlm.**$* {
+    <fields>;
+    <methods>;
+}
+-keepnames class com.google.ai.edge.litertlm.** { *; }
+-keepnames class com.google.ai.edge.litertlm.**$* { *; }
 -dontwarn com.google.ai.edge.litertlm.**
+
+# --- Shaded / CodeGen dependencies (fix for R8 missing classes) ---
+-dontwarn javax.lang.model.**
+-dontwarn autovalue.shaded.**
+-dontwarn com.google.auto.value.**
 
 # --- Google ML Kit ---
 -keep class com.google.mlkit.** { *; }

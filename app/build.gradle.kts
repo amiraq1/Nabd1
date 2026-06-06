@@ -19,11 +19,16 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // SET TO FALSE: Completely bypass R8 code shrinking to ensure 
+            // all Reflection-based LiteRT classes are preserved.
+            val isMinifyEnabledToggle = false 
+            
+            isMinifyEnabled = isMinifyEnabledToggle
+            isShrinkResources = isMinifyEnabledToggle
+            
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                file("proguard-rules.pro") // Rigid path scoping for the rules file
             )
         }
     }
