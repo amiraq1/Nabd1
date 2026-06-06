@@ -47,6 +47,10 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                         refs.cpuBackendClass.getConstructor().newInstance()
                     }
 
+                    // Detect if it's a multimodal model (.task)
+                    val isMultimodal = modelPath.endsWith(".task", ignoreCase = true)
+                    Log.d(TAG, "Model type: ${if (isMultimodal) "Multimodal (.task)" else "Text-only (.litertlm)"}")
+
                     val maxContextTokens = 2048 // Emergency Context Inflation
                     val numThreads = 4
 

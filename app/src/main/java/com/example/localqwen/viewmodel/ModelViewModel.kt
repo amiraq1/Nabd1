@@ -252,13 +252,13 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
                 // 1. Validation
                 val fileName = getFileName(uri)
                 if (fileName != null && !modelManager.isModelFileExtensionValid(fileName)) {
-                    _setupState.value = ModelSetupState.Error("الملف المختار ليس نموذجاً مدعوماً. اختر ملفاً بصيغة .litertlm", "Invalid extension: $fileName")
+                    _setupState.value = ModelSetupState.Error("الملف المختار ليس نموذجاً مدعوماً. اختر ملفاً بصيغة .litertlm أو .task", "Invalid extension: $fileName")
                     return@launch
                 }
 
                 // 2. Copying
                 _setupState.value = ModelSetupState.Copying
-                _statusEvent.value = StatusEvent.Info("جاري حفظ النموذج محلياً...")
+                _statusEvent.value = StatusEvent.Info("جاري حفظ النموذج محلياً (قد يستغرق وقتاً للنماذج الكبيرة)...")
                 
                 val success = withContext(Dispatchers.IO) {
                     val targetFile = modelManager.modelFile(model)
@@ -269,7 +269,11 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
 
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
                         tempFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            val buffer = ByteArray(8192) // Efficient 8KB buffer to prevent OOM
+                            var bytesRead: Int
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                            }
                         }
                     } ?: error("تعذر فتح ملف النموذج المختار")
 

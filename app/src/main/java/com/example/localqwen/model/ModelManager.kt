@@ -91,7 +91,8 @@ class ModelManager(private val context: Context) {
     fun modelPath(model: SupportedModel): String = modelFile(model).absolutePath
 
     fun isModelFileExtensionValid(fileName: String?): Boolean {
-        return fileName?.endsWith(".litertlm", ignoreCase = true) == true
+        return fileName?.endsWith(".litertlm", ignoreCase = true) == true ||
+               fileName?.endsWith(".task", ignoreCase = true) == true
     }
 
     fun isModelReady(model: SupportedModel): Boolean {
