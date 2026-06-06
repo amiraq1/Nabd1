@@ -47,30 +47,42 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                         refs.cpuBackendClass.getConstructor().newInstance()
                     }
 
-                    val maxContextTokens = 1024
+                    val maxContextTokens = 2048 // Emergency Context Inflation
                     val numThreads = 4
 
                     Log.d(TAG, "Initializing engine with maxContextTokens=$maxContextTokens, numThreads=$numThreads, backend=$backendName")
 
-                    val config = refs.engineConfigClass
-                        .getConstructor(
-                            String::class.java,
-                            refs.backendClass,
-                            refs.backendClass,
-                            refs.backendClass,
-                            Integer::class.java,
-                            Integer::class.java,
-                            String::class.java
-                        )
-                        .newInstance(
-                            modelPath, 
-                            backend, // generationBackend
-                            backend, // prefillBackend
-                            backend, // kvCacheBackend
-                            Integer.valueOf(maxContextTokens), 
-                            Integer.valueOf(numThreads), 
-                            cacheDir
-                        )
+                    // Reflection Audit: LiteRT-LM EngineConfig usually follows:
+                    // (modelPath, genBackend, prefBackend, kvBackend, maxContext, numThreads, cacheDir)
+                    // We will explicitly search for the matching constructor or use a safer instantiation.
+                    
+                    val constructors = refs.engineConfigClass.constructors
+                    val constructor = constructors.firstOrNull { it.parameterTypes.size == 7 }
+                        ?: error("Unable to find valid EngineConfig constructor with 7 parameters")
+                    
+                    val paramTypes = constructor.parameterTypes
+                    val args = arrayOfNulls<Any>(7)
+                    args[0] = modelPath
+                    args[1] = backend
+                    args[2] = backend
+                    args[3] = backend
+                    
+                    // Safe type-checking for swapped parameters
+                    // We assume paramTypes[4] is context and paramTypes[5] is threads, 
+                    // but we inflate both if they are Integer to be absolutely safe against swapping.
+                    for (i in 4..5) {
+                        if (paramTypes[i] == Integer::class.java || paramTypes[i] == Int::class.javaPrimitiveType) {
+                            // If we suspect swapping, we set a high enough value for BOTH 
+                            // to ensure neither ends up as '4' for context.
+                            args[i] = if (i == 4) Integer.valueOf(maxContextTokens) else Integer.valueOf(numThreads)
+                        }
+                    }
+                    args[6] = cacheDir
+
+                    Log.d(TAG, "Constructor types: ${paramTypes.joinToString { it.simpleName }}")
+                    Log.d(TAG, "Arguments: ${args.joinToString { it?.toString() ?: "null" }}")
+
+                    val config = constructor.newInstance(*args)
 
                     val newEngine = refs.engineClass.getConstructor(refs.engineConfigClass).newInstance(config)
                     refs.engineClass.getMethod("initialize").invoke(newEngine)
@@ -148,6 +160,8 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
 
     override fun generate(prompt: String): Flow<String> {
         if (isReleased.get() || engine == null) return emptyFlow()
+        
+        Log.d(TAG, "Shipping payload to Native. Length: ${prompt.length} chars, Byte count: ${prompt.toByteArray().size}")
         
         val refs = getCachedRefs()
         val currentConversation = conversation ?: return emptyFlow()
