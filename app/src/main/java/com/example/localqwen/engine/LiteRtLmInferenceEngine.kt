@@ -127,9 +127,21 @@ class LiteRtLmInferenceEngine : NabdInferenceEngine {
                 val currentEngine = engine ?: return@withLock
                 val refs = getCachedRefs()
                 try {
+                    // Explicitly close the previous conversation to free native KV cache
                     (conversation as? AutoCloseable)?.close()
-                } catch (_: Exception) {}
-                conversation = refs.createConversation(currentEngine)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error closing previous native conversation", e)
+                } finally {
+                    conversation = null
+                }
+                
+                try {
+                    // Re-create a fresh conversation instance
+                    conversation = refs.createConversation(currentEngine)
+                    Log.d(TAG, "Native conversation context reset successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create new native conversation", e)
+                }
             }
         }
     }

@@ -7,8 +7,6 @@ import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
@@ -52,15 +50,37 @@ import kotlin.coroutines.resumeWithException
 import com.example.localqwen.data.SecurePreferences
 import com.example.localqwen.diagnostics.NabdDiagnosticLogger
 
+import com.example.localqwen.utils.ContextEngineer
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+data class ChatUiState(
+    val chatHistory: List<ChatMessage> = emptyList(),
+    val isGenerating: Boolean = false,
+    val isPreparingContext: Boolean = false,
+    val isProcessingDocument: Boolean = false,
+    val currentInputText: String = "",
+    val statusEvent: StatusEvent? = null,
+    val streamingUpdate: StreamingUpdate? = null,
+    val currentTps: Float = 0f,
+    val lastErrorReportFile: File? = null,
+    val scrollToBottom: Boolean = false
+)
+
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private var imageAnalyzer: GemmaImageAnalyzer? = null
     
-    private val _lastErrorReportFile = MutableLiveData<File?>(null)
-    val lastErrorReportFile: LiveData<File?> = _lastErrorReportFile
+    private val _uiState = MutableStateFlow(ChatUiState())
+    val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    val lastErrorReportFile: File? get() = _uiState.value.lastErrorReportFile
 
     fun clearErrorReport() {
-        _lastErrorReportFile.value = null
+        _uiState.update { it.copy(lastErrorReportFile = null) }
     }
 
     fun triggerTestReport() {
@@ -76,20 +96,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             ),
             isTest = true
         )
-        _lastErrorReportFile.value = reportFile
+        _uiState.update { it.copy(lastErrorReportFile = reportFile) }
     }
 
     fun analyzeImageWithGemma(uri: Uri, question: String) {
         val context = getApplication<Application>()
-        _isGenerating.value = true
-        _statusEvent.value = StatusEvent.Info("جاري تحليل الصورة...")
-        _lastErrorReportFile.value = null
+        _uiState.update { 
+            it.copy(
+                isGenerating = true,
+                statusEvent = StatusEvent.Info("جاري تحليل الصورة..."),
+                lastErrorReportFile = null
+            )
+        }
         
         // Add the user message immediately
         addChatMessage(ChatMessage(role = Role.USER, text = "[صورة مرفقة]\n$question"))
         val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
         addChatMessage(assistantMessage)
-        _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = true)
+        _uiState.update { 
+            it.copy(streamingUpdate = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = true))
+        }
         
         viewModelScope.launch {
             var modelPath = "unknown"
@@ -100,8 +126,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val modelManager = com.example.localqwen.model.ModelManager(context)
                     val model = modelManager.getModelById("gemma_3n_e2b_it")
                     if (model == null || !modelManager.isModelImported(model.id)) {
-                        _statusEvent.value = StatusEvent.Error("النموذج المطلوب غير متوفر.")
-                        _isGenerating.value = false
+                        _uiState.update { it.copy(statusEvent = StatusEvent.Error("النموذج المطلوب غير متوفر."), isGenerating = false) }
                         return@launch
                     }
                     modelPath = modelManager.modelPath(model)
@@ -115,15 +140,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         val updatedMessage = assistantMessage.copy(text = cleanForDisplay(output.toString()))
                         chatMessages[chatMessages.lastIndex] = updatedMessage
                         withContext(Dispatchers.Main) {
-                            _messages.value = chatMessages.toList()
-                            _scrollToBottom.value = true
+                            _uiState.update { it.copy(chatHistory = chatMessages.toList(), scrollToBottom = true) }
                         }
                     }
                 }
                 
                 lastAssistantResponse = cleanForDisplay(output.toString(), preserveMarkdown = true)
                 saveActiveSessionDebounced()
-                _statusEvent.value = StatusEvent.Success("اكتمل التحليل")
+                _uiState.update { it.copy(statusEvent = StatusEvent.Success("اكتمل التحليل")) }
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Image analysis failed", e)
                 
@@ -138,19 +162,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         exception = e
                     )
                 )
-                _lastErrorReportFile.value = reportFile
+                _uiState.update { it.copy(lastErrorReportFile = reportFile) }
                 
                 val errorMsg = if (reportFile != null) 
                     "تعذر تشغيل النموذج. تم إنشاء ملف تشخيص يمكنك مشاركته للمساعدة في الإصلاح." 
                     else "حدث خطأ أثناء تحليل الصورة."
                 
-                _statusEvent.value = StatusEvent.Error(errorMsg)
+                _uiState.update { it.copy(statusEvent = StatusEvent.Error(errorMsg)) }
                 val updatedMessage = assistantMessage.copy(text = "⚠️ $errorMsg")
                 chatMessages[chatMessages.lastIndex] = updatedMessage
-                _messages.value = chatMessages.toList()
+                _uiState.update { it.copy(chatHistory = chatMessages.toList()) }
             } finally {
-                _isGenerating.value = false
-                _streamingUpdate.value = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = false)
+                _uiState.update { 
+                    it.copy(
+                        isGenerating = false,
+                        streamingUpdate = StreamingUpdate(index = chatMessages.lastIndex, isStreaming = false)
+                    )
+                }
                 imageAnalyzer?.unload()
                 imageAnalyzer = null
             }
@@ -162,30 +190,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val db = NabdDatabase.getInstance(application)
     val chatSessionStore = ChatSessionStore(preferences, db)
     val documentStore = DocumentStore(preferences, db)
-
-    private val _messages = MutableLiveData<List<ChatMessage>>(emptyList())
-    val messages: LiveData<List<ChatMessage>> = _messages
-
-    private val _isGenerating = MutableLiveData(false)
-    val isGenerating: LiveData<Boolean> = _isGenerating
-
-    private val _isPreparingContext = MutableLiveData(false)
-    val isPreparingContext: LiveData<Boolean> = _isPreparingContext
-
-    private val _isProcessingDocument = MutableLiveData(false)
-    val isProcessingDocument: LiveData<Boolean> = _isProcessingDocument
-
-    private val _statusEvent = MutableLiveData<StatusEvent>()
-    val statusEvent: LiveData<StatusEvent> = _statusEvent
-
-    private val _streamingUpdate = MutableLiveData<StreamingUpdate?>()
-    val streamingUpdate: LiveData<StreamingUpdate?> = _streamingUpdate
-
-    private val _currentTps = MutableLiveData<Float>(0f)
-    val currentTps: LiveData<Float> = _currentTps
-
-    private val _scrollToBottom = MutableLiveData<Boolean>()
-    val scrollToBottom: LiveData<Boolean> = _scrollToBottom
 
     private val chatMessages = mutableListOf<ChatMessage>()
     var lastAssistantResponse: String = ""
@@ -213,8 +217,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             activeAssistantMessageIndex = chatMessages.indexOfLast { it.role == Role.ASSISTANT }
             session.selectedDocumentId?.let(documentStore::setSelectedDocumentId)
                 ?: documentStore.clearSelectedDocumentId()
-            _messages.value = chatMessages.toList()
-            _scrollToBottom.value = true
+            _uiState.update { 
+                it.copy(
+                    chatHistory = chatMessages.toList(),
+                    scrollToBottom = true
+                )
+            }
         }
     }
 
@@ -225,8 +233,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             activeAssistantMessageIndex = -1
             documentStore.clearSelectedDocumentId()
             chatSessionStore.createNewSession()
-            _messages.value = emptyList()
-            _statusEvent.value = StatusEvent.Info("تم إنشاء محادثة جديدة")
+            _uiState.update { 
+                it.copy(
+                    chatHistory = emptyList(),
+                    statusEvent = StatusEvent.Info("تم إنشاء محادثة جديدة")
+                )
+            }
         }
     }
 
@@ -247,18 +259,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val fileName = getFileName(context, uri) ?: "مستند غير معروف"
         val mimeType = context.contentResolver.getType(uri) ?: ""
         
-        _isProcessingDocument.value = true
-        _statusEvent.value = StatusEvent.Info("جاري معالجة المستند...")
+        _uiState.update { 
+            it.copy(
+                isProcessingDocument = true,
+                statusEvent = StatusEvent.Info("جاري معالجة المستند...")
+            )
+        }
 
         viewModelScope.launch {
             try {
                 // 1. Safe Copy to internal cache to prevent URI permission expiration
                 val localFile = copyUriToLocalFile(uri, fileName)
-                if (localFile == null || !localFile.exists()) {
-                    _statusEvent.value = StatusEvent.Error("تعذر الوصول للملف. تأكد من وجود مساحة كافية.")
-                    _isProcessingDocument.value = false
+                if (localFile == null) {
+                    _uiState.update { 
+                        it.copy(
+                            statusEvent = StatusEvent.Error("تعذر الوصول للملف. تأكد من وجود مساحة كافية."),
+                            isProcessingDocument = false
+                        )
+                    }
                     return@launch
                 }
+
 
                 val localUri = Uri.fromFile(localFile)
 
@@ -273,7 +294,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     isImage -> {
                         processImageOcr(localFile, fileName)
-                        _isProcessingDocument.value = false
+                        _uiState.update { it.copy(isProcessingDocument = false) }
                     }
                     else -> {
                         // Fallback: Try reading as plain text
@@ -283,15 +304,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         if (text.isNotBlank()) {
                             saveTextDocument(fileName, text)
                         } else {
-                            _statusEvent.value = StatusEvent.Error("صيغة الملف غير مدعومة أو الملف فارغ.")
+                            _uiState.update { it.copy(statusEvent = StatusEvent.Error("صيغة الملف غير مدعومة أو الملف فارغ.")) }
                         }
-                        _isProcessingDocument.value = false
+                        _uiState.update { it.copy(isProcessingDocument = false) }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Error importing document", e)
-                _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء معالجة المستند.")
-                _isProcessingDocument.value = false
+                _uiState.update { 
+                    it.copy(
+                        statusEvent = StatusEvent.Error("حدث خطأ أثناء معالجة المستند."),
+                        isProcessingDocument = false
+                    )
+                }
             }
         }
     }
@@ -323,13 +348,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             
             if (text.isNotBlank()) {
                 saveTextDocument("صورة - $title", text, type = "image_ocr")
-                _statusEvent.value = StatusEvent.Success("تم استخراج النص من الصورة، يمكنك الآن سؤالي عنها!")
+                _uiState.update { it.copy(statusEvent = StatusEvent.Success("تم استخراج النص من الصورة، يمكنك الآن سؤالي عنها!")) }
             } else {
-                _statusEvent.value = StatusEvent.Error("لم أجد نصاً واضحاً داخل الصورة.")
+                _uiState.update { it.copy(statusEvent = StatusEvent.Error("لم أجد نصاً واضحاً داخل الصورة.")) }
             }
         } catch (e: Exception) {
             Log.e("ChatViewModel", "OCR failed", e)
-            _statusEvent.value = StatusEvent.Error("فشل استخراج النص من الصورة.")
+            _uiState.update { it.copy(statusEvent = StatusEvent.Error("فشل استخراج النص من الصورة.")) }
         } finally {
             recognizer.close()
         }
@@ -346,7 +371,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         documentStore.saveDocument(document)
         documentStore.setSelectedDocumentId(document.id)
         if (type == "txt") {
-            _statusEvent.value = StatusEvent.Success("تمت إضافة المستند بنجاح: $title")
+            _uiState.update { it.copy(statusEvent = StatusEvent.Success("تمت إضافة المستند بنجاح: $title")) }
         }
     }
 
@@ -373,14 +398,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             override fun onChanged(value: WorkInfo?) {
                 if (value == null) return
                 if (value.state.isFinished) {
-                    _isProcessingDocument.value = false
+                    _uiState.update { it.copy(isProcessingDocument = false) }
                     if (value.state == WorkInfo.State.SUCCEEDED) {
                         val docId = value.outputData.getString(PdfProcessingWorker.KEY_DOCUMENT_ID)
                         docId?.let { documentStore.setSelectedDocumentId(it) }
-                        _statusEvent.value = StatusEvent.Success("تم تجهيز مستند PDF بنجاح، يمكنك الآن سؤالي عنه!")
+                        _uiState.update { it.copy(statusEvent = StatusEvent.Success("تم تجهيز مستند PDF بنجاح، يمكنك الآن سؤالي عنه!")) }
                     } else {
                         val error = value.outputData.getString(PdfProcessingWorker.KEY_ERROR_MESSAGE) ?: "خطأ غير معروف"
-                        _statusEvent.value = StatusEvent.Error("عذراً، لم أتمكن من معالجة ملف PDF: $error")
+                        _uiState.update { it.copy(statusEvent = StatusEvent.Error("عذراً، لم أتمكن من معالجة ملف PDF: $error")) }
                     }
                     workInfoLiveData.removeObserver(this)
                 }
@@ -417,12 +442,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun buildChatHistoryPrompt(limit: Int = 6): String {
-        // Exclude the current user message and the empty assistant message just added
-        val history = chatMessages.dropLast(2).takeLast(limit)
+    private fun buildChatHistoryPrompt(history: List<ChatMessage>): String {
         return history.joinToString("\n") { msg ->
             val role = if (msg.role == Role.USER) "أنت" else "نبض"
-            val text = if (msg.text.length > 200) msg.text.take(200) + "..." else msg.text
+            val text = if (msg.text.length > 300) msg.text.take(300) + "..." else msg.text
             "$role: $text"
         }
     }
@@ -439,8 +462,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         responseMode: String = "balanced"
     ) {
         if (input.isBlank()) return
-        if (_isGenerating.value == true) return
-        if (_isPreparingContext.value == true) return
+        if (_uiState.value.isGenerating) return
+        if (_uiState.value.isPreparingContext) return
 
         val userMessage = ChatMessage(role = Role.USER, text = input.trim())
         addChatMessage(userMessage)
@@ -448,17 +471,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = "")
         addChatMessage(assistantMessage)
 
-        _isPreparingContext.value = true
+        _uiState.update { it.copy(isPreparingContext = true) }
 
         val hasSelectedDocument = documentStore.getSelectedDocumentId() != null
-        _statusEvent.value = if (hasSelectedDocument) {
-            StatusEvent.Info("جاري تجهيز سياق المستند...")
-        } else {
-            StatusEvent.Info("جاري التوليد...")
+        _uiState.update { 
+            it.copy(
+                statusEvent = if (hasSelectedDocument) {
+                    StatusEvent.Info("جاري تجهيز سياق المستند...")
+                } else {
+                    StatusEvent.Info("جاري التوليد...")
+                }
+            )
         }
 
         generationJob = viewModelScope.launch {
             try {
+                // 1. Mandatory Native Purge: Reset conversation before EVERY turn to prevent KV cache accumulation
+                withContext(Dispatchers.IO) {
+                    engine?.resetConversation()
+                }
+
                 val selectedDocument = getSelectedDocumentAsync()
                 val contextResult = try {
                     withContext(Dispatchers.IO) {
@@ -475,7 +507,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     DocumentContextResult(context = null, generationStatus = "جاري التوليد...")
                 }
 
-                val historyContext = buildChatHistoryPrompt(limit = 4)
+                // 2. Context Engineering: Optimize chat history within token limits
+                val baseIdentity = NabdSystemPrompt.baseIdentityPrompt(responseMode)
+                val engineeredHistory = ContextEngineer.engineeringContext(
+                    systemPrompt = baseIdentity,
+                    fullHistory = chatMessages.dropLast(2), // Exclude the new user/assistant pair
+                    latestUserMessage = input
+                )
+                var historyContext = buildChatHistoryPrompt(engineeredHistory)
 
                 // Verification Engine Integration
                 val verificationDecision = VerificationClassifier.classify(input)
@@ -483,12 +522,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     VerificationPromptBuilder.buildInstruction(verificationDecision)
                 } else null
                 
-                Log.d("NabdVerification", "Query: $input")
-                Log.d("NabdVerification", "Level: ${verificationDecision.level}")
-                Log.d("NabdVerification", "Reason: ${verificationDecision.reason}")
-                if (verificationInstruction != null) {
-                    Log.d("NabdVerification", "Instruction Injected: Yes")
-                }
+                Log.d("ChatContext", "Original history size: ${chatMessages.size - 2}")
+                Log.d("ChatContext", "Engineered history size: ${engineeredHistory.size}")
 
                 // Store verification decision in the assistant message for UI
                 withContext(Dispatchers.Main) {
@@ -497,11 +532,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             verificationLevel = verificationDecision.level,
                             sourceRequirement = verificationDecision.sourceRequirement
                         )
-                        _messages.value = chatMessages.toList()
+                        _uiState.update { it.copy(chatHistory = chatMessages.toList()) }
                     }
                 }
 
-                val prompt = if (contextResult.context != null) {
+                var prompt = if (contextResult.context != null) {
                     NabdSystemPrompt.documentPrompt(
                         userInput = input,
                         contextChunks = contextResult.context,
@@ -520,13 +555,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                _isPreparingContext.value = false
-
-                try {
-                    engine?.resetConversation()
-                } catch (_: Exception) {
-                    // Keep generation available even if an engine cannot reset its transient state.
+                // 3. Prompt Isolation Test: If the prompt is still huge, fallback to isolated input
+                // Estimation: 1024 tokens is roughly 3500-4000 characters for mixed content
+                if (prompt.length > 4000) {
+                    Log.w("NabdSafety", "Final prompt exceeds safety character limit. Isolating current message.")
+                    prompt = NabdSystemPrompt.normalChatPrompt(
+                        userInput = input,
+                        historyContext = "", // Wipe history for this turn
+                        memoryContext = "", 
+                        responseMode = responseMode,
+                        verificationInstruction = verificationInstruction
+                    )
                 }
+
+                _uiState.update { it.copy(isPreparingContext = false) }
 
                 startGeneration(
                     engine = engine,
@@ -535,20 +577,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     autoTitle = chatMessages.count { it.role == Role.USER } == 1,
                     firstUserMessage = input
                 )
-            } catch (_: kotlinx.coroutines.CancellationException) {
-                finishStoppedGeneration()
+            } catch (e: Exception) {
+                // Check specifically for Status Code 3 or related buffer errors
+                if (e.message?.contains("Status Code: 3") == true || e.message?.contains("too long") == true) {
+                    Log.e("NabdCritical", "Context Overflow detected! Retrying with absolute isolation.")
+                    try {
+                        withContext(Dispatchers.IO) { engine?.resetConversation() }
+                        val isolatedPrompt = NabdSystemPrompt.normalChatPrompt(
+                            userInput = input,
+                            historyContext = "",
+                            memoryContext = "",
+                            responseMode = responseMode
+                        )
+                        startGeneration(engine, isolatedPrompt, "إعادة محاولة (عزل السياق)...", false, input)
+                    } catch (retryError: Exception) {
+                        _uiState.update { it.copy(statusEvent = StatusEvent.Error("خطأ حرج في الذاكرة: ${retryError.message}")) }
+                    }
+                } else if (e !is kotlinx.coroutines.CancellationException) {
+                    _uiState.update { it.copy(statusEvent = StatusEvent.Error("حدث خطأ أثناء التجهيز: ${e.message}")) }
+                } else {
+                    finishStoppedGeneration()
+                }
             } finally {
-                _isPreparingContext.value = false
+                _uiState.update { it.copy(isPreparingContext = false) }
             }
         }
     }
 
     fun stopGeneration() {
-        val wasBusy = _isPreparingContext.value == true || _isGenerating.value == true
+        val wasBusy = _uiState.value.isPreparingContext || _uiState.value.isGenerating
         generationJob?.cancel()
         if (wasBusy) {
-            _isPreparingContext.value = false
-            _isGenerating.value = false
+            _uiState.update { it.copy(isPreparingContext = false, isGenerating = false) }
             finishStoppedGeneration()
         }
     }
@@ -565,16 +625,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             updateAssistantMessageInternal(message, renderMarkdown = true)
             lastAssistantResponse = message
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
-            _statusEvent.value = StatusEvent.Error(message)
+            _uiState.update { it.copy(statusEvent = StatusEvent.Error(message)) }
             return
         }
 
-        _isGenerating.value = true
+        _uiState.update { 
+            it.copy(
+                isGenerating = true,
+                statusEvent = StatusEvent.Info(status),
+                streamingUpdate = StreamingUpdate(index = activeAssistantMessageIndex, isStreaming = true)
+            )
+        }
         val generationStartedAt = SystemClock.elapsedRealtime()
         lastFirstTokenLatencyMs = null
         lastGenerationDurationMs = null
-        _statusEvent.value = StatusEvent.Info(status)
-        _streamingUpdate.value = StreamingUpdate(index = activeAssistantMessageIndex, isStreaming = true)
 
         try {
             val output = StringBuilder()
@@ -593,9 +657,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         
                         val elapsed = (SystemClock.elapsedRealtime() - generationStartedAt) / 1000f
                         if (elapsed > 0) {
-                            withContext(Dispatchers.Main) {
-                                _currentTps.value = tokenCount / elapsed
-                            }
+                            val currentTps = tokenCount / elapsed
+                            _uiState.update { it.copy(currentTps = currentTps) }
                         }
 
                         output.append(chunk)
@@ -623,7 +686,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             
             withContext(Dispatchers.Main) {
                 updateAssistantMessageInternal(finalText, renderMarkdown = true)
-                _currentTps.value = 0f
+                _uiState.update { it.copy(currentTps = 0f) }
             }
             
             lastAssistantResponse = finalText
@@ -631,22 +694,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
 
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
-            _statusEvent.value = StatusEvent.Success("جاهز")
+            _uiState.update { it.copy(statusEvent = StatusEvent.Success("جاهز")) }
         } catch (cancelled: CancellationException) {
             Log.i("NabdInference", "Generation cancelled by user")
-            _currentTps.postValue(0f)
+            _uiState.update { it.copy(currentTps = 0f) }
             withContext(Dispatchers.Main) {
                 finishStoppedGeneration()
             }
         } catch (e: Exception) {
             Log.e("NabdInference", "Generation failed", e)
-            _currentTps.postValue(0f)
+            _uiState.update { it.copy(currentTps = 0f) }
             lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
-            _statusEvent.value = StatusEvent.Error("حدث خطأ أثناء توليد الرد: ${e.message}")
+            _uiState.update { it.copy(statusEvent = StatusEvent.Error("حدث خطأ أثناء توليد الرد: ${e.message}")) }
         } finally {
-            _isGenerating.value = false
-            _streamingUpdate.value = null
+            _uiState.update { it.copy(isGenerating = false, streamingUpdate = null) }
         }
     }
 
@@ -659,9 +721,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         } else if (currentText.isNotBlank()) {
             lastAssistantResponse = currentText
         }
-        _currentTps.value = 0f
-        _streamingUpdate.value = null
-        _statusEvent.value = StatusEvent.Info("تم إيقاف التوليد")
+        _uiState.update { 
+            it.copy(
+                currentTps = 0f,
+                streamingUpdate = null,
+                statusEvent = StatusEvent.Info("تم إيقاف التوليد")
+            )
+        }
         saveActiveSessionDebounced(immediate = true)
     }
 
@@ -676,18 +742,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (normalized.role == Role.ASSISTANT) {
             activeAssistantMessageIndex = chatMessages.lastIndex
         }
-        _messages.value = chatMessages.toList()
-        _scrollToBottom.value = true
+        _uiState.update { it.copy(chatHistory = chatMessages.toList(), scrollToBottom = true) }
     }
 
     private fun updateAssistantMessageInternal(text: String, renderMarkdown: Boolean) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
         chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(text = text)
-        _messages.value = chatMessages.toList()
-        _streamingUpdate.value = StreamingUpdate(
-            index = activeAssistantMessageIndex,
-            isStreaming = !renderMarkdown
-        )
+        _uiState.update { 
+            it.copy(
+                chatHistory = chatMessages.toList(),
+                streamingUpdate = StreamingUpdate(
+                    index = activeAssistantMessageIndex,
+                    isStreaming = !renderMarkdown
+                )
+            )
+        }
     }
 
     fun saveActiveSessionDebounced(
@@ -736,7 +805,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSelectedDocument() {
         documentStore.clearSelectedDocumentId()
         saveActiveSessionDebounced(immediate = true)
-        _statusEvent.value = StatusEvent.Info("تم إلغاء تحديد المستند")
+        _uiState.update { it.copy(statusEvent = StatusEvent.Info("تم إلغاء تحديد المستند")) }
     }
 
     fun getCurrentMessages(): List<ChatMessage> = chatMessages.toList()

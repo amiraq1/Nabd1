@@ -12,8 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +30,7 @@ import com.example.localqwen.model.ModelManager
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.Role
 import com.example.localqwen.viewmodel.ChatViewModel
+import com.example.localqwen.viewmodel.ChatUiState
 import com.example.localqwen.viewmodel.ModelViewModel
 import com.example.localqwen.viewmodel.ModelState
 import com.example.localqwen.viewmodel.MemoryViewModel
@@ -54,8 +57,27 @@ fun NabdApp(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val lastErrorReport by chatViewModel.lastErrorReportFile.observeAsState()
+    val uiState by chatViewModel.uiState.collectAsState(initial = ChatUiState())
+    val messages = uiState.chatHistory
+    val isGenerating = uiState.isGenerating
+    val isPreparingContext = uiState.isPreparingContext
+    val isProcessingDocument = uiState.isProcessingDocument
+    val currentTps = uiState.currentTps
+    val statusEvent = uiState.statusEvent
+    val lastErrorReport = uiState.lastErrorReportFile
+
+    val selectedModel by modelViewModel.selectedModel.observeAsState()
+    val modelState by modelViewModel.modelState.observeAsState()
+    val modelStatusEvent by modelViewModel.statusEvent.observeAsState()
+    val performanceState by modelViewModel.performanceState.observeAsState(com.example.localqwen.viewmodel.PerformanceState())
     
+    var statusText by remember { mutableStateOf("جاهز") }
+    var showClearMemoryConfirm by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+
+    val sheetState = rememberModalBottomSheetState()
+    val isBusy = isGenerating || isPreparingContext || isProcessingDocument
+
     if (lastErrorReport != null) {
         AlertDialog(
             onDismissRequest = { chatViewModel.clearErrorReport() },
@@ -78,7 +100,7 @@ fun NabdApp(
                     Spacer(modifier = Modifier.height(8.dp))
                     SelectionContainer {
                         Text(
-                            lastErrorReport!!.absolutePath,
+                            lastErrorReport.absolutePath,
                             fontSize = 11.sp,
                             color = Color.DarkGray,
                             modifier = Modifier
@@ -101,7 +123,7 @@ fun NabdApp(
             confirmButton = {
                 TextButton(onClick = {
                     try {
-                        val uri = NabdDiagnosticLogger.getLogFileUri(context, lastErrorReport!!)
+                        val uri = NabdDiagnosticLogger.getLogFileUri(context, lastErrorReport)
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_STREAM, uri)
@@ -118,7 +140,7 @@ fun NabdApp(
             dismissButton = {
                 Row {
                     TextButton(onClick = {
-                        clipboardManager.setText(AnnotatedString(lastErrorReport!!.absolutePath))
+                        clipboardManager.setText(AnnotatedString(lastErrorReport.absolutePath))
                         Toast.makeText(context, "تم نسخ المسار", Toast.LENGTH_SHORT).show()
                     }) {
                         Text("نسخ المسار")
@@ -130,23 +152,6 @@ fun NabdApp(
             }
         )
     }
-    val messages by chatViewModel.messages.observeAsState(emptyList())
-    val isGenerating by chatViewModel.isGenerating.observeAsState(false)
-    val isPreparingContext by chatViewModel.isPreparingContext.observeAsState(false)
-    val isProcessingDocument by chatViewModel.isProcessingDocument.observeAsState(false)
-    val selectedModel by modelViewModel.selectedModel.observeAsState()
-    val modelState by modelViewModel.modelState.observeAsState()
-    val statusEvent by chatViewModel.statusEvent.observeAsState()
-    val modelStatusEvent by modelViewModel.statusEvent.observeAsState()
-    val currentTps by chatViewModel.currentTps.observeAsState(0f)
-    val performanceState by modelViewModel.performanceState.observeAsState(com.example.localqwen.viewmodel.PerformanceState())
-    
-    var statusText by remember { mutableStateOf("جاهز") }
-    var showClearMemoryConfirm by remember { mutableStateOf(false) }
-    var showModelSheet by remember { mutableStateOf(false) }
-
-    val sheetState = rememberModalBottomSheetState()
-    val isBusy = isGenerating || isPreparingContext || isProcessingDocument
 
     LaunchedEffect(modelState) {
         modelState?.let { state ->
@@ -242,7 +247,8 @@ fun NabdApp(
     }
 
     LaunchedEffect(statusEvent, modelStatusEvent, currentTps) {
-        (statusEvent ?: modelStatusEvent)?.let { event ->
+        val activeEvent = statusEvent ?: modelStatusEvent
+        activeEvent?.let { event ->
             val base = when (event) {
                 is StatusEvent.Info -> event.message
                 is StatusEvent.Success -> event.message
