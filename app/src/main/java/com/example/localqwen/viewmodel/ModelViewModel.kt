@@ -339,6 +339,7 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
                 _statusEvent.value = StatusEvent.Success("تم إعداد وتشغيل ${model.displayName}")
             } else {
                 val error = result.exceptionOrNull()
+                Log.e("ModelViewModel", "Failed to load model in loadModelInternal", error)
                 localEngineLastErrorMessage = error?.message
                 val userMsg = "تعذر تشغيل النموذج. قد يكون الملف غير متوافق أو ذاكرة الجهاز غير كافية."
                 _setupState.value = ModelSetupState.Error(userMsg, error?.stackTraceToString())
@@ -411,6 +412,7 @@ class ModelViewModel(application: Application) : AndroidViewModel(application) {
                     _statusEvent.value = StatusEvent.Success("تم تشغيل نبض")
                 } else {
                     val error = result.exceptionOrNull()
+                    Log.e("ModelViewModel", "Failed to load model in loadModel", error)
                     localEngineLastErrorMessage = error?.message
                     val userMessage = when (error) {
                         is OutOfMemoryError -> "ذاكرة الجهاز غير كافية لتشغيل هذا النموذج."
