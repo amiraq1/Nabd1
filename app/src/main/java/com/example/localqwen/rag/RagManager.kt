@@ -96,7 +96,7 @@ class RagManager(
                     documentTitle = document.title,
                     chunkIndex = index,
                     text = chunk,
-                    score = words.sumOf { word -> if (loweredChunk.contains(word)) 1 else 0 }
+                    score = words.count { word -> loweredChunk.contains(word) }
                 )
             }
             .sortedByDescending { it.score }

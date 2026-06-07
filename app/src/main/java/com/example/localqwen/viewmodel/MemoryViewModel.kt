@@ -11,7 +11,11 @@ import com.example.localqwen.memory.MemoryStore
 import com.example.localqwen.tools.PhoneToolIntent
 import java.util.Locale
 
-class MemoryViewModel(application: Application) : AndroidViewModel(application) {
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+
+@HiltViewModel
+class MemoryViewModel @Inject constructor(application: Application) : AndroidViewModel(application) {
 
     private val memoryStore = MemoryStore(application)
 

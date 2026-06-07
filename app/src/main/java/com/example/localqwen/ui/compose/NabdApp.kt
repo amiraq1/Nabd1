@@ -15,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
-
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.localqwen.model.ModelManager
+import com.example.localqwen.model.ModelManager.Companion.SUPPORTED_MODELS
 import com.example.localqwen.chat.ChatMessage
 import com.example.localqwen.chat.Role
 import com.example.localqwen.viewmodel.ChatViewModel
@@ -59,10 +59,8 @@ fun NabdApp(
     val clipboardManager = LocalClipboardManager.current
     val uiState by chatViewModel.uiState.collectAsState(initial = ChatUiState())
     val messages = uiState.chatHistory
-    val isGenerating = uiState.isGenerating
-    val isPreparingContext = uiState.isPreparingContext
-    val isProcessingDocument = uiState.isProcessingDocument
-    val currentTps = uiState.currentTps
+    val chatState = uiState.state
+    val isBusy = chatState == com.example.localqwen.viewmodel.ChatState.GENERATING || chatState == com.example.localqwen.viewmodel.ChatState.PREPARING_CONTEXT || uiState.isProcessingDocument
     val statusEvent = uiState.statusEvent
     val lastErrorReport = uiState.lastErrorReportFile
 
@@ -76,7 +74,6 @@ fun NabdApp(
     var showModelSheet by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState()
-    val isBusy = isGenerating || isPreparingContext || isProcessingDocument
 
     if (lastErrorReport != null) {
         AlertDialog(
@@ -156,7 +153,13 @@ fun NabdApp(
     LaunchedEffect(modelState) {
         modelState?.let { state ->
             statusText = when (state) {
-                is com.example.localqwen.viewmodel.ModelState.Loading -> "جاري تشغيل نبض..."
+                is com.example.localqwen.viewmodel.ModelState.Loading -> {
+                    if (state.progress != null) {
+                        "جاري التحميل (${(state.progress * 100).toInt()}%)..."
+                    } else {
+                        "جاري تشغيل نبض..."
+                    }
+                }
                 is com.example.localqwen.viewmodel.ModelState.Ready -> "جاهز"
                 is com.example.localqwen.viewmodel.ModelState.Idle -> "غير مشغّل"
                 is com.example.localqwen.viewmodel.ModelState.NotImported -> "غير مستورد"
@@ -165,9 +168,14 @@ fun NabdApp(
         }
     }
 
-    LaunchedEffect(currentTps) {
-        if (currentTps > 0) {
-            modelViewModel.addTpsRecord(currentTps)
+    LaunchedEffect(statusEvent, modelStatusEvent) {
+        val activeEvent = statusEvent ?: modelStatusEvent
+        activeEvent?.let { event ->
+            statusText = when (event) {
+                is StatusEvent.Info -> event.message
+                is StatusEvent.Success -> event.message
+                is StatusEvent.Error -> event.message
+            }
         }
     }
 
@@ -232,6 +240,7 @@ fun NabdApp(
             confirmButton = {
                 TextButton(onClick = {
                     showVisionDialog = false
+                    modelViewModel.clearTpsHistory()
                     chatViewModel.analyzeImageWithGemma(selectedVisionUri!!, visionPrompt)
                     selectedVisionUri = null
                 }) {
@@ -246,19 +255,8 @@ fun NabdApp(
         )
     }
 
-    LaunchedEffect(statusEvent, modelStatusEvent, currentTps) {
-        val activeEvent = statusEvent ?: modelStatusEvent
-        activeEvent?.let { event ->
-            val base = when (event) {
-                is StatusEvent.Info -> event.message
-                is StatusEvent.Success -> event.message
-                is StatusEvent.Error -> event.message
-            }
-            statusText = if (currentTps > 0) "$base (${"%.1f".format(currentTps)} t/s)" else base
-        }
-    }
-
     val responseMode by modelViewModel.responseMode.observeAsState("balanced")
+
 
     val handleSendMessage: (String) -> Unit = { text ->
         if (text.isNotBlank()) {
@@ -282,6 +280,7 @@ fun NabdApp(
                     }
                 }
             } else {
+                modelViewModel.clearTpsHistory()
                 chatViewModel.sendMessage(
                     input = text,
                     engine = modelViewModel.textInferenceEngine,
@@ -520,7 +519,7 @@ fun NabdApp(
                     )
                 )
 
-                ModelManager.SUPPORTED_MODELS.forEach { model ->
+                SUPPORTED_MODELS.forEach { model ->
                     val isSelected = selectedModel?.id == model.id
                     val isImported = modelViewModel.modelManager.isModelImported(model.id)
                     

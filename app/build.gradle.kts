@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.dagger.hilt.android")
 }
 
 android {
@@ -10,7 +11,6 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        // SCORCHED-EARTH: Unique ID to bypass device-level package/DEX caching (MIUI/HyperOS)
         applicationId = "com.nabd.ai.local.mtp_engine"
         minSdk = 26
         targetSdk = 34
@@ -19,16 +19,14 @@ android {
     }
 
     buildTypes {
-        release {
-            // DEFENSIVE: Force-disable minification to ensure LiteRT Reflection is 100% stable
+        debug {
             isMinifyEnabled = false
             isShrinkResources = false
-            
-            // Fast manual installation signature
+        }
+        release {
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
-            
-            // Remove ProGuard dependency to ensure absolutely zero stripping in this isolation cycle
-            // setProguardFiles(emptyList())
         }
     }
 
@@ -40,41 +38,51 @@ android {
     buildFeatures {
         compose = true
     }
-
-    lint {
-        disable += "FlowOperatorInvokedInComposition"
-    }
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
     }
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+
+    // Dagger Hilt
+    implementation("com.google.dagger:hilt-android:2.54")
+    kapt("com.google.dagger:hilt-compiler:2.54")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+
     // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("net.zetetic:android-database-sqlcipher:4.5.4")
     implementation("androidx.sqlite:sqlite:2.4.0")
 
     // AI / ML
-    runtimeOnly("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
+    implementation("com.google.ai.edge.litert:litert-api:1.0.1")
+    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mediapipe:tasks-text:0.10.14")
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("com.google.mediapipe:tasks-text:0.10.14") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+        exclude(group = "org.tensorflow", module = "tensorflow-lite")
+    }
 
-    // AndroidX Lifecycle (ViewModel + LiveData)
+    // AndroidX
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-ktx:1.8.2")
-
-    // UI
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
+
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // UI Utilities
     implementation("io.noties.markwon:core:4.6.2")
-    implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 
     // Coroutines
@@ -85,23 +93,17 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.0-alpha13")
     kapt("androidx.room:room-compiler:2.7.0-alpha13")
 
-    // WorkManager
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
-
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.04.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-text-google-fonts")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.compose.runtime:runtime-livedata")
+    implementation("androidx.compose.ui:ui-text-google-fonts")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlin:kotlin-test")
 }

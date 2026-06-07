@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.localqwen.chat.ChatMessage
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,11 +34,27 @@ fun ChatScreen(
     onModelClick: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
-    val latestMessageKey = messages.lastOrNull()?.let { "${it.id}:${it.text.length}" }
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(messages.size, latestMessageKey, isGenerating) {
+    // Smart Auto-Scroll Logic
+    // We only auto-scroll if the user is ALREADY near the bottom.
+    // If they scrolled up to read history, we do NOT pull them down.
+    val isScrolledToBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            if (totalItems == 0) return@derivedStateOf true
+
+            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            lastVisibleItem?.index == totalItems - 1
+        }
+    }
+
+    val latestMessageId = messages.lastOrNull()?.id
+
+    LaunchedEffect(latestMessageId, isGenerating) {
         val totalItems = messages.size + if (isGenerating) 1 else 0
-        if (totalItems > 0) {
+        if (totalItems > 0 && isScrolledToBottom) {
             listState.animateScrollToItem(totalItems - 1)
         }
     }
@@ -97,14 +114,21 @@ fun ChatScreen(
                 }
                 
                 if (isGenerating) {
-                    item {
+                    item(key = "typing_indicator") {
                         TypingIndicator()
                     }
                 }
             }
 
             ChatInputBar(
-                onSendMessage = onSendMessage,
+                onSendMessage = { text ->
+                    onSendMessage(text)
+                    // Force scroll to bottom when user sends a message
+                    coroutineScope.launch {
+                        val total = messages.size + 1
+                        if (total > 0) listState.animateScrollToItem(total - 1)
+                    }
+                },
                 onAddAttachment = onAddAttachment,
                 onCancelGeneration = onCancelGeneration,
                 onAnalyzeImage = onAnalyzeImage,

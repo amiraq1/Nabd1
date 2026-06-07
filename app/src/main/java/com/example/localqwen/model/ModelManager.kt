@@ -1,10 +1,50 @@
 package com.example.localqwen.model
 
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
+import android.util.Log
+import com.example.localqwen.engine.NabdInferenceEngine
+import com.example.localqwen.engine.InferenceEngineFactory
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.MessageDigest
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ModelManager(private val context: Context) {
+sealed class ModelLoadingState {
+    data object Idle : ModelLoadingState()
+    data class Loading(val progress: Float) : ModelLoadingState()
+    data object Ready : ModelLoadingState()
+    data object Unloading : ModelLoadingState()
+    data class Error(val message: String) : ModelLoadingState()
+}
+
+@Singleton
+class ModelManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val engineFactory: InferenceEngineFactory
+) : ComponentCallbacks2 {
+
+    private val _modelLoadingState = MutableStateFlow<ModelLoadingState>(ModelLoadingState.Idle)
+    val modelLoadingState: StateFlow<ModelLoadingState> = _modelLoadingState.asStateFlow()
+
+    private var activeEngine: NabdInferenceEngine? = null
+    private var currentModelId: String? = null
+    private val modelLock = Mutex()
+
+    init {
+        context.registerComponentCallbacks(this)
+    }
+
     data class SupportedModel(
         val id: String,
         val displayName: String,
@@ -13,7 +53,8 @@ class ModelManager(private val context: Context) {
     )
 
     companion object {
-        const val MIN_MODEL_SIZE_BYTES = 50_000_000L // 50MB فحص تقريبي أولي لا يغني عن تحقق المحرك
+        private const val TAG = "ModelManager"
+        const val MIN_MODEL_SIZE_BYTES = 50_000_000L
 
         val VISION_MODEL = SupportedModel(
             id = "fastvlm_0_5b",
@@ -44,8 +85,68 @@ class ModelManager(private val context: Context) {
         )
     }
 
-    private val legacyModelFile: File
-        get() = File(context.filesDir, "models/qwen3-0.6b/model.litertlm")
+    suspend fun loadModel(modelId: String, backend: String = "cpu") = withContext(Dispatchers.IO) {
+        modelLock.withLock {
+            if (currentModelId == modelId && activeEngine?.isReady() == true) {
+                _modelLoadingState.value = ModelLoadingState.Ready
+                return@withLock
+            }
+
+            val model = getModelById(modelId) ?: run {
+                _modelLoadingState.value = ModelLoadingState.Error("النموذج غير موجود")
+                return@withLock
+            }
+
+            try {
+                _modelLoadingState.value = ModelLoadingState.Loading(0.1f)
+                unloadInternal()
+
+                _modelLoadingState.value = ModelLoadingState.Loading(0.3f)
+                val engine = engineFactory.getEngine()
+                
+                _modelLoadingState.value = ModelLoadingState.Loading(0.6f)
+                engine.load(modelPath(model), context.cacheDir.absolutePath, backend)
+                
+                activeEngine = engine
+                currentModelId = modelId
+                _modelLoadingState.value = ModelLoadingState.Ready
+                Log.d(TAG, "Model $modelId loaded successfully on $backend")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load model $modelId", e)
+                _modelLoadingState.value = ModelLoadingState.Error(e.message ?: "فشل تحميل النموذج")
+            }
+        }
+    }
+
+    suspend fun unloadModel() = withContext(Dispatchers.IO) {
+        modelLock.withLock {
+            unloadInternal()
+        }
+    }
+
+    private suspend fun unloadInternal() {
+        if (activeEngine != null) {
+            _modelLoadingState.value = ModelLoadingState.Unloading
+            try {
+                activeEngine?.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error closing engine", e)
+            } finally {
+                activeEngine = null
+                currentModelId = null
+                _modelLoadingState.value = ModelLoadingState.Idle
+                Log.d(TAG, "Model unloaded")
+            }
+        }
+    }
+
+    fun getEngine(): NabdInferenceEngine? = activeEngine
+    fun getLoadedModelId(): String? = currentModelId
+
+    fun getModelById(modelId: String): SupportedModel? {
+        if (modelId == VISION_MODEL.id) return VISION_MODEL
+        return SUPPORTED_MODELS.firstOrNull { it.id == modelId }
+    }
 
     private fun modelDir(model: SupportedModel): File {
         return File(context.filesDir, "models/${model.id}").apply {
@@ -53,90 +154,49 @@ class ModelManager(private val context: Context) {
         }
     }
 
-    fun getModelById(modelId: String): SupportedModel? {
-        if (modelId == VISION_MODEL.id) return VISION_MODEL
-        return SUPPORTED_MODELS.firstOrNull { it.id == modelId }
-    }
-
-    fun modelFile(model: SupportedModel): File {
-        val targetFile = File(modelDir(model), "model.litertlm")
-        if (model.id == "gemma_e2b" && !targetFile.exists() && legacyModelFile.exists()) {
-            legacyModelFile.copyTo(targetFile, overwrite = false)
-        }
-        return targetFile
-    }
-
-    fun tempModelFile(model: SupportedModel): File {
-        return File(modelDir(model), "model.litertlm.tmp")
-    }
-
-    fun cleanTempFiles() {
-        try {
-            val modelsDir = File(context.filesDir, "models")
-            if (modelsDir.exists()) {
-                modelsDir.walkTopDown().forEach { file ->
-                    if (file.isFile && file.name.endsWith(".tmp")) {
-                        file.delete()
-                    }
-                }
-            }
-        } catch (_: Exception) { }
-    }
-
-    fun getModelFile(modelId: String): File? {
-        val model = getModelById(modelId) ?: return null
-        return modelFile(model)
-    }
-
+    fun modelFile(model: SupportedModel): File = File(modelDir(model), "model.litertlm")
+    fun tempModelFile(model: SupportedModel): File = File(modelDir(model), "model.litertlm.tmp")
     fun modelPath(model: SupportedModel): String = modelFile(model).absolutePath
+
+    fun isModelImported(modelId: String): Boolean {
+        val model = getModelById(modelId) ?: return false
+        val file = modelFile(model)
+        return file.exists() && file.isFile && file.length() >= 10_000_000
+    }
+
+    fun isModelReady(model: SupportedModel): Boolean {
+        val file = modelFile(model)
+        return file.exists() && file.isFile && file.length() >= MIN_MODEL_SIZE_BYTES
+    }
 
     fun isModelFileExtensionValid(fileName: String?): Boolean {
         return fileName?.endsWith(".litertlm", ignoreCase = true) == true ||
                fileName?.endsWith(".task", ignoreCase = true) == true
     }
 
-    fun isModelReady(model: SupportedModel): Boolean {
-        val file = modelFile(model)
-        // التحقق من وجود الملف النهائي فقط وبحجم معقول
-        return file.exists() && file.isFile && file.length() >= MIN_MODEL_SIZE_BYTES
-    }
+    fun deleteModel(model: SupportedModel): Boolean = modelDir(model).deleteRecursively()
 
-    fun isModelImported(modelId: String): Boolean {
-        val file = getModelFile(modelId) ?: return false
-        return file.exists() && file.isFile && file.length() >= 10_000_000
-    }
-
-    fun modelSizeBytes(modelId: String): Long {
-        val file = getModelFile(modelId) ?: return 0L
-        return if (file.exists() && file.isFile) file.length() else 0L
-    }
-
-    fun deleteModel(model: SupportedModel): Boolean {
-        return modelDir(model).deleteRecursively()
-    }
-
-    fun deleteModel(modelId: String): Boolean {
-        val model = getModelById(modelId) ?: return false
-        return deleteModel(model)
-    }
-
-    /**
-     * Calculates the SHA-256 fingerprint of an imported model file.
-     * Used to verify model integrity and prevent tampering.
-     */
-    fun verifyModelIntegrity(file: File): String {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buffer = ByteArray(8192)
-                var bytesRead: Int
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    digest.update(buffer, 0, bytesRead)
+    override fun onTrimMemory(level: Int) {
+        Log.d(TAG, "onTrimMemory level: $level")
+        CoroutineScope(Dispatchers.IO).launch {
+            when (level) {
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
+                    modelLock.withLock {
+                        activeEngine?.resetConversation()
+                        Log.d(TAG, "Trim: KV Cache cleared")
+                    }
+                }
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+                ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
+                    unloadModel()
+                    Log.d(TAG, "Trim: Model unloaded")
                 }
             }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            "error_calculating_hash"
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {}
+    override fun onLowMemory() {
+        onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
     }
 }

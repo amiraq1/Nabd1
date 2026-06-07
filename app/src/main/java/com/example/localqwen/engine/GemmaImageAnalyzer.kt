@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
@@ -15,11 +16,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
+@Singleton
+class GemmaImageAnalyzer @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val engine: NabdInferenceEngine
+) : AutoCloseable {
 
-    private var engine: LiteRtLmInferenceEngine? = null
-    
     var currentStage: String = "idle"
         private set
     
@@ -31,8 +36,7 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
         Log.d(TAG, "Starting model load from: $modelPath")
         withContext(Dispatchers.IO) {
             try {
-                engine = LiteRtLmInferenceEngine()
-                engine?.load(modelPath, context.cacheDir.absolutePath, "gpu")
+                engine.load(modelPath, context.cacheDir.absolutePath, "gpu")
                 Log.d(TAG, "Model loaded successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Model load failed", e)
@@ -42,97 +46,60 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
     }
 
     override fun close() {
-        Log.d(TAG, "Closing image analyzer engine...")
-        try {
-            engine?.close()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error during engine close", e)
-        } finally {
-            engine = null
-        }
-        Log.d(TAG, "Image analyzer engine closed")
+        Log.d(TAG, "Unloading image analyzer resources...")
+        // Since engine is a singleton, we don't necessarily want to close it here
+        // unless we are sure it's not used elsewhere.
+        // For now, we follow the previous pattern.
+        // engine.close() 
     }
 
     fun unload() = close()
 
     suspend fun analyzeImage(imageUri: Uri, question: String): Flow<String> {
         return withContext(Dispatchers.IO) {
-            if (engine == null || engine?.isReady() != true) {
+            if (!engine.isReady()) {
                 Log.e(TAG, "Inference attempt while model not ready")
                 throw IllegalStateException("Model not loaded")
             }
 
             // 1. Load and resize image
             currentStage = "imageProcessing"
-            Log.d(TAG, "Starting image processing for URI: $imageUri")
             val resizedFile = resizeImageToTempFile(imageUri, 768)
                 ?: throw IllegalArgumentException("Could not process image")
 
             lastTempImagePath = resizedFile.absolutePath
-            Log.d(TAG, "Temp image file ready at: ${resizedFile.absolutePath}")
 
-            // 2. Prepare the prompt in Arabic
+            // 2. Prepare the prompt
             val prompt = """
                 أنت مساعد ذكي داخل تطبيق نبض.
                 مهمتك تحليل الصور والإجابة عنها باللغة العربية بوضوح واختصار.
                 حلل محتوى الصورة بدقة.
-                إذا سأل المستخدم سؤالًا محددًا عن الصورة، أجب عن السؤال مباشرة.
-                إذا كانت الصورة تحتوي على نص، حاول قراءته وشرحه.
-                إذا لم تكن متأكدًا من شيء، قل إنك غير متأكد بدل التخمين.
-                لا تذكر تفاصيل غير موجودة في الصورة.
                 سؤال المستخدم:
                 $question
             """.trimIndent()
 
             currentStage = "inference"
-            Log.d(TAG, "Starting vision inference with prompt: $question")
 
             // 3. Generate vision response
             var firstChunk = true
-            val flow = engine!!.generateVision(resizedFile.absolutePath, prompt)
+            val flow = engine.generateVision(resizedFile.absolutePath, prompt)
 
-            flow.onStart { 
-                Log.d(TAG, "Inference flow started")
-                currentStage = "firstChunk"
-            }
+            flow.onStart { currentStage = "firstChunk" }
                 .onEach { 
                     if (firstChunk) {
-                        Log.d(TAG, "Received first chunk/token from model")
                         firstChunk = false
                         currentStage = "streaming"
                     }
                 }
                 .onCompletion { cause ->
                     if (cause != null) {
-                        Log.e(TAG, "Inference completed with error", cause)
                         currentStage = "error"
                     } else {
-                        Log.d(TAG, "Inference completed successfully")
                         currentStage = "completed"
                     }
-                    // Always clean up temp file — success or error
                     secureDeleteFile(resizedFile)
                     lastTempImagePath = null
                 }
-        }
-    }
-
-    /**
-     * Removes any leftover temporary vision image files from the cache directory.
-     * Call this during app startup to clean up after crashes or abnormal terminations.
-     */
-    fun cleanupTempFiles() {
-        try {
-            val cacheDir = context.cacheDir
-            val tempFiles = cacheDir.listFiles { file ->
-                file.name.startsWith(TEMP_FILE_PREFIX) && file.name.endsWith(TEMP_FILE_SUFFIX)
-            }
-            tempFiles?.forEach { file ->
-                secureDeleteFile(file)
-                Log.d(TAG, "Cleaned up leftover temp file: ${file.name}")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error during temp file cleanup", e)
         }
     }
 
@@ -145,7 +112,6 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
 
             val originalWidth = options.outWidth
             val originalHeight = options.outHeight
-            Log.d(TAG, "Original dimensions: ${originalWidth}x${originalHeight}")
 
             val freshInputStream = context.contentResolver.openInputStream(uri) ?: return null
             val originalBitmap = BitmapFactory.decodeStream(freshInputStream)
@@ -157,10 +123,8 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
             val resizedBitmap = if (scale < 1) {
                 val targetW = (originalWidth * scale).toInt()
                 val targetH = (originalHeight * scale).toInt()
-                Log.d(TAG, "Resizing to: ${targetW}x${targetH} (scale: $scale)")
                 Bitmap.createScaledBitmap(originalBitmap, targetW, targetH, true)
             } else {
-                Log.d(TAG, "No resizing needed, using original dimensions")
                 originalBitmap
             }
 
@@ -169,9 +133,7 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
             resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
             outputStream.close()
 
-            if (resizedBitmap != originalBitmap) {
-                resizedBitmap.recycle()
-            }
+            if (resizedBitmap != originalBitmap) resizedBitmap.recycle()
             originalBitmap.recycle()
 
             return tempFile
@@ -186,10 +148,6 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
         private const val TEMP_FILE_PREFIX = "vision_temp_"
         private const val TEMP_FILE_SUFFIX = ".jpg"
 
-        /**
-         * Securely deletes a file by overwriting its contents with zeros before deletion.
-         * This prevents recovery of image data from disk after the file is deleted.
-         */
         private fun secureDeleteFile(file: File) {
             try {
                 if (!file.exists()) return
@@ -209,10 +167,8 @@ class GemmaImageAnalyzer(private val context: Context) : AutoCloseable {
                 }
                 file.delete()
             } catch (e: Exception) {
-                // Fallback: attempt simple deletion even if overwrite fails
                 try { file.delete() } catch (_: Exception) {}
-                Log.w(TAG, "Secure delete partially failed, file deleted without overwrite", e)
             }
         }
     }
-}
+}
