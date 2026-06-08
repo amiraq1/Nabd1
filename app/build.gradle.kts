@@ -61,9 +61,9 @@ dependencies {
     implementation("androidx.sqlite:sqlite:2.4.0")
 
     // AI / ML
-    implementation("com.google.ai.edge.litert:litert-api:1.0.1")
-    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
+    implementation("com.google.ai.edge.litert:litert-api:1.1.0")
+    implementation("com.google.ai.edge.litert:litert-support:1.1.0")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.13.1")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mediapipe:tasks-text:0.10.14") {
         exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
@@ -106,4 +106,44 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        val copyApkTask = tasks.register<Copy>("copyApkToDownloads") {
+            description = "Copies the debug APK to the Downloads directory."
+            
+            // Access the APK directory correctly using the Artifact API
+            val apkDir = variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK)
+            
+            from(apkDir) {
+                include("**/*.apk")
+                rename { "nabd-latest-dev.apk" }
+            }
+            
+            val destDir = File("/storage/emulated/0/Download/")
+            into(destDir)
+            
+            doFirst {
+                if (!destDir.exists()) {
+                    destDir.mkdirs()
+                }
+            }
+            
+            doLast {
+                val copiedApk = File(destDir, "nabd-latest-dev.apk")
+                if (copiedApk.exists()) {
+                    println("APK copied successfully:\n${copiedApk.absolutePath}")
+                } else {
+                    println("APK not found:\n${copiedApk.absolutePath}")
+                }
+            }
+        }
+        
+        project.tasks.configureEach {
+            if (name == "assembleDebug") {
+                finalizedBy(copyApkTask)
+            }
+        }
+    }
 }

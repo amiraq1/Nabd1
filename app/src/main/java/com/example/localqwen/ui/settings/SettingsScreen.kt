@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    modelState: com.example.localqwen.viewmodel.ModelState,
+    modelName: String,
     onBackClick: () -> Unit,
     onImportModelClick: () -> Unit
 ) {
@@ -27,6 +29,32 @@ fun SettingsScreen(
     val cardBackground = Color(0xFF1A1A1E)
     val accentColor = Color(0xFFFF4A5A) // اللون الوردي/الأحمر المعتمد في تطبيق نبض
     val orangeColor = Color(0xFFE57373)
+    val greenColor = Color(0xFF4CAF50)
+    val blueColor = Color(0xFF2196F3)
+
+    val isReady = modelState is com.example.localqwen.viewmodel.ModelState.Ready
+    val isLoading = modelState is com.example.localqwen.viewmodel.ModelState.Loading
+    val isIdle = modelState is com.example.localqwen.viewmodel.ModelState.Idle
+
+    val badgeColor = if (isReady) greenColor else if (isLoading) blueColor else orangeColor
+    val badgeText = when (modelState) {
+        is com.example.localqwen.viewmodel.ModelState.Ready -> "جاهز"
+        is com.example.localqwen.viewmodel.ModelState.Loading -> "جاري التحميل..."
+        is com.example.localqwen.viewmodel.ModelState.Idle -> "مستورد"
+        is com.example.localqwen.viewmodel.ModelState.Error -> "خطأ"
+        else -> "غير مستورد"
+    }
+
+    val mainText = if (isReady || isIdle || isLoading) modelName else "لم يتم إعداد النموذج"
+    val descText = when (modelState) {
+        is com.example.localqwen.viewmodel.ModelState.Ready -> "النموذج محمل في الذاكرة ويعمل."
+        is com.example.localqwen.viewmodel.ModelState.Loading -> "يتم الآن تحميل النموذج..."
+        is com.example.localqwen.viewmodel.ModelState.Idle -> "النموذج مستورد ولكنه غير محمل حالياً."
+        is com.example.localqwen.viewmodel.ModelState.Error -> "حدث خطأ أثناء تحميل النموذج."
+        else -> "اختر نموذجاً للبدء باستخدام نبض."
+    }
+    
+    val btnText = if (isReady || isIdle || isLoading) "تغيير النموذج" else "استيراد نموذج وتشغيله"
 
     Scaffold(
         topBar = {
@@ -81,13 +109,12 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .padding(24.dp)
                 ) {
-                    // السطر العلوي: الأيقونة مع شارة "غير مستورد"
+                    // السطر العلوي: الأيقونة مع الشارة
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // أيقونة النبض التخطيطية (استبدلها بـ الـ Vector الخاص بك إذا توفر)
                         Icon(
                             painter = painterResource(id = android.R.drawable.ic_lock_power_off), // مؤقت للأيقونة
                             contentDescription = "Pulse Status",
@@ -95,10 +122,9 @@ fun SettingsScreen(
                             modifier = Modifier.size(32.dp)
                         )
 
-                        // شارة "غير مستورد"
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = orangeColor.copy(alpha = 0.15f),
+                            color = badgeColor.copy(alpha = 0.15f),
                             modifier = Modifier.wrapContentSize()
                         ) {
                             Row(
@@ -108,12 +134,12 @@ fun SettingsScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(8.dp)
-                                        .background(orangeColor, RoundedCornerShape(50))
+                                        .background(badgeColor, RoundedCornerShape(50))
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "غير مستورد",
-                                    color = orangeColor,
+                                    text = badgeText,
+                                    color = badgeColor,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -125,7 +151,7 @@ fun SettingsScreen(
 
                     // نصوص حالة النموذج
                     Text(
-                        text = "لم يتم إعداد النموذج",
+                        text = mainText,
                         color = Color.White,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
@@ -135,7 +161,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "اختر نموذجاً للبدء باستخدام نبض.",
+                        text = descText,
                         color = Color.Gray,
                         fontSize = 14.sp,
                         modifier = Modifier.align(Alignment.End)
@@ -163,7 +189,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "استيراد نموذج وتشغيله",
+                                text = btnText,
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold
@@ -172,8 +198,6 @@ fun SettingsScreen(
                     }
                 }
             }
-            
-            // تم حذف الإعدادات العامة وباقي الحقول لتبقى الشاشة مخصصة فقط للاستيراد
         }
     }
 }

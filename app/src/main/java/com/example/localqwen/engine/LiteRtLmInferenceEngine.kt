@@ -49,15 +49,18 @@ class LiteRtLmInferenceEngine @Inject constructor(
                     val backendObj = BackendProvider.getBackend(backendName)
                     
                     // Actual Signature from javap and error analysis:
-                    // EngineConfig(modelPath, backend, visionBackend, audioBackend, maxNumTokens, cacheDir)
-                    // Note: In some versions maxNumImages might be present, but the error said 6 args.
+                    // EngineConfig(modelPath, backend, visionBackend, audioBackend, maxNumTokens, maxNumImages)
+                    // Then set cacheDir via reflection if it's missing, or omit it if not supported.
+                    // Based on the error "actual type is 'kotlin.String', but 'kotlin.Int?' was expected",
+                    // the 6th argument is likely an Int (maybe maxNumImages).
+                    // Let's use 0 for the 6th argument.
                     val config = EngineConfig(
                         modelPath,
                         backendObj,
                         backendObj, // Use same for vision
                         backendObj, // Use same for audio
                         2048,       // maxNumTokens
-                        cacheDir
+                        null        // maxNumImages (set to null to avoid validation constraints)
                     )
                     
                     val newEngine = Engine(config)

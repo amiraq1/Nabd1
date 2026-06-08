@@ -172,6 +172,15 @@ fun MessageBubble(message: ChatMessage) {
                     sourceRequirement = message.sourceRequirement
                 )
             }
+            
+            if (!isUser && message.tps != null) {
+                Text(
+                    text = String.format("⚡ %.1f TPS", message.tps),
+                    fontSize = 10.sp,
+                    color = NabdColors.InkTertiary,
+                    modifier = Modifier.padding(top = 4.dp, start = 8.dp)
+                )
+            }
 
             if (!isUser && message.text.isNotBlank()) {
                 IconButton(

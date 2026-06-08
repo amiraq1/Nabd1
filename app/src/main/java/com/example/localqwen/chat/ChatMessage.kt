@@ -12,7 +12,8 @@ data class ChatMessage(
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
     val verificationLevel: VerificationLevel? = null,
-    val sourceRequirement: SourceRequirement? = null
+    val sourceRequirement: SourceRequirement? = null,
+    val tps: Double? = null
 )
 
 enum class Role {

@@ -758,9 +758,12 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(chatHistory = chatMessages.toList()) }
     }
 
-    private fun updateAssistantMessageInternal(text: String, renderMarkdown: Boolean) {
+    private fun updateAssistantMessageInternal(text: String, renderMarkdown: Boolean, tps: Double? = null) {
         if (activeAssistantMessageIndex !in chatMessages.indices) return
-        chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(text = text)
+        chatMessages[activeAssistantMessageIndex] = chatMessages[activeAssistantMessageIndex].copy(
+            text = text,
+            tps = tps ?: chatMessages[activeAssistantMessageIndex].tps
+        )
         // Note: isStreaming is implicit now based on ChatState.GENERATING, we just update history
         _uiState.update { 
             it.copy(

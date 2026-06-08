@@ -82,6 +82,8 @@ class SettingsActivity : AppCompatActivity() {
                 ModelRuntimeDevScreen(onBackClick = { showDevMode = false })
             } else {
                 com.example.localqwen.ui.settings.SettingsScreen(
+                    modelState = modelState,
+                    modelName = currentModelDescription,
                     onBackClick = { finish() },
                     onImportModelClick = { modelPickerLauncher.launch("*/*") }
                 )
