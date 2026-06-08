@@ -103,21 +103,22 @@ class GemmaImageAnalyzer @Inject constructor(
         }
     }
 
-    private fun resizeImageToTempFile(uri: Uri, maxDimension: Int): File? {
+    private suspend fun resizeImageToTempFile(uri: Uri, maxDimension: Int): File? {
         try {
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val localPath = com.example.localqwen.utils.UriFileResolver.copyUriToCache(context, uri, "vision_raw_")
+            val localFile = File(localPath)
+
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeStream(inputStream, null, options)
-            inputStream.close()
+            BitmapFactory.decodeFile(localPath, options)
 
             val originalWidth = options.outWidth
             val originalHeight = options.outHeight
 
-            val freshInputStream = context.contentResolver.openInputStream(uri) ?: return null
-            val originalBitmap = BitmapFactory.decodeStream(freshInputStream)
-            freshInputStream.close()
-
-            if (originalBitmap == null) return null
+            val originalBitmap = BitmapFactory.decodeFile(localPath)
+            if (originalBitmap == null) {
+                localFile.delete()
+                return null
+            }
 
             val scale = maxDimension.toFloat() / maxOf(originalWidth, originalHeight)
             val resizedBitmap = if (scale < 1) {
@@ -135,6 +136,8 @@ class GemmaImageAnalyzer @Inject constructor(
 
             if (resizedBitmap != originalBitmap) resizedBitmap.recycle()
             originalBitmap.recycle()
+            
+            localFile.delete()
 
             return tempFile
         } catch (e: Exception) {

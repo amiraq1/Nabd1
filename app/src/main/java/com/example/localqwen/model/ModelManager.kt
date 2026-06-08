@@ -88,6 +88,7 @@ class ModelManager @Inject constructor(
     suspend fun loadModel(modelId: String, backend: String = "cpu") = withContext(Dispatchers.IO) {
         modelLock.withLock {
             if (currentModelId == modelId && activeEngine?.isReady() == true) {
+                Log.d(TAG, "MODEL_ALREADY_LOADED: Model $modelId is already active")
                 _modelLoadingState.value = ModelLoadingState.Ready
                 return@withLock
             }
@@ -110,7 +111,7 @@ class ModelManager @Inject constructor(
                 activeEngine = engine
                 currentModelId = modelId
                 _modelLoadingState.value = ModelLoadingState.Ready
-                Log.d(TAG, "Model $modelId loaded successfully on $backend")
+                Log.d(TAG, "ENGINE_CREATED: Model $modelId loaded successfully on $backend")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load model $modelId", e)
                 _modelLoadingState.value = ModelLoadingState.Error(e.message ?: "فشل تحميل النموذج")
@@ -129,6 +130,7 @@ class ModelManager @Inject constructor(
             _modelLoadingState.value = ModelLoadingState.Unloading
             try {
                 activeEngine?.close()
+                Log.d(TAG, "ENGINE_DESTROYED: Engine closed")
             } catch (e: Exception) {
                 Log.w(TAG, "Error closing engine", e)
             } finally {

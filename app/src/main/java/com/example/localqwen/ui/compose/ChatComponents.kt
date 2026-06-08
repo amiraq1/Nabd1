@@ -54,91 +54,72 @@ import com.example.localqwen.chat.Role
 
 @Composable
 fun MessageBubble(message: ChatMessage) {
-    val isUser = message.role == Role.USER
-    val isSystem = message.role == Role.SYSTEM
+    when (message.role) {
+        Role.SYSTEM -> SystemMessageBubble(message)
+        Role.USER -> UserMessageBubble(message)
+        Role.ASSISTANT -> AssistantMessageBubble(message)
+    }
+}
 
-    if (isSystem) {
-        val isError = message.text.startsWith("خطأ") || message.text.contains("فشل") || message.text.contains("عذراً")
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 16.dp),
-            contentAlignment = Alignment.Center
+@Composable
+fun SystemMessageBubble(message: ChatMessage) {
+    val isError = message.text.startsWith("خطأ") || message.text.contains("فشل") || message.text.contains("عذراً")
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp, horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            color = if (isError) NabdColors.ErrorLight else NabdColors.BubbleSystem,
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Surface(
-                color = if (isError) NabdColors.ErrorLight else NabdColors.BubbleSystem,
-                shape = RoundedCornerShape(12.dp)
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    if (isError) {
-                        Text("⚠️", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
-                    }
-                    Text(
-                        text = message.text,
-                        fontSize = 12.sp,
-                        color = if (isError) NabdColors.Error else NabdColors.InkSecondary,
-                        style = TextStyle(
-                            fontWeight = FontWeight.Medium,
-                            textDirection = TextDirection.Rtl,
-                            textAlign = TextAlign.Center
-                        )
-                    )
+                if (isError) {
+                    Text("⚠️", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
                 }
+                Text(
+                    text = message.text,
+                    fontSize = 12.sp,
+                    color = if (isError) NabdColors.Error else NabdColors.InkSecondary,
+                    style = TextStyle(
+                        fontWeight = FontWeight.Medium,
+                        textDirection = TextDirection.Rtl,
+                        textAlign = TextAlign.Center
+                    )
+                )
             }
         }
-        return
     }
+}
 
+@Composable
+fun UserMessageBubble(message: ChatMessage) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp, horizontal = 4.dp),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        horizontalArrangement = Arrangement.End
     ) {
-        val context = LocalContext.current
-        val clipboardManager = LocalClipboardManager.current
-
-        if (!isUser) {
-            AssistantAvatar()
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
-        Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+        Column(horizontalAlignment = Alignment.End) {
             Box(
                 modifier = Modifier
                     .clip(
                         RoundedCornerShape(
                             topStart = 20.dp,
                             topEnd = 20.dp,
-                            bottomStart = if (isUser) 20.dp else 4.dp,
-                            bottomEnd = if (isUser) 4.dp else 20.dp
+                            bottomStart = 20.dp,
+                            bottomEnd = 4.dp
                         )
                     )
-                    .then(
-                        if (isUser) {
-                            Modifier.background(
-                                Brush.linearGradient(
-                                    colors = listOf(NabdColors.Rose, NabdColors.RoseDark)
-                                )
-                            )
-                        } else {
-                            Modifier
-                                .background(NabdColors.BubbleAssistant)
-                                .border(
-                                    1.dp,
-                                    NabdColors.CardBorder,
-                                    RoundedCornerShape(
-                                        topStart = 20.dp,
-                                        topEnd = 20.dp,
-                                        bottomStart = 4.dp,
-                                        bottomEnd = 20.dp
-                                    )
-                                )
-                        }
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(NabdColors.Rose, NabdColors.RoseDark)
+                        )
                     )
                     .padding(horizontal = 16.dp, vertical = 10.dp)
                     .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp)
@@ -155,7 +136,74 @@ fun MessageBubble(message: ChatMessage) {
                 SelectionContainer {
                     Text(
                         text = cleanedText,
-                        color = if (isUser) NabdColors.InkOnRose else NabdColors.Ink,
+                        color = NabdColors.InkOnRose,
+                        fontSize = 15.sp,
+                        lineHeight = 24.sp,
+                        style = TextStyle(
+                            textDirection = TextDirection.Rtl,
+                            textAlign = TextAlign.Start
+                        )
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        UserAvatar()
+    }
+}
+
+@Composable
+fun AssistantMessageBubble(message: ChatMessage) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        AssistantAvatar()
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Column(horizontalAlignment = Alignment.Start) {
+            Box(
+                modifier = Modifier
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 20.dp,
+                            topEnd = 20.dp,
+                            bottomStart = 4.dp,
+                            bottomEnd = 20.dp
+                        )
+                    )
+                    .background(NabdColors.BubbleAssistant)
+                    .border(
+                        1.dp,
+                        NabdColors.CardBorder,
+                        RoundedCornerShape(
+                            topStart = 20.dp,
+                            topEnd = 20.dp,
+                            bottomStart = 4.dp,
+                            bottomEnd = 20.dp
+                        )
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.88f).dp)
+            ) {
+                val cleanedText = remember(message.text) {
+                    message.text
+                        .replace(Regex("\\n{2,}"), "\n")
+                        .replace("**", "")
+                        .replace("__", "")
+                        .replace(Regex("^#+\\s*"), "")
+                        .trim()
+                }
+
+                SelectionContainer {
+                    Text(
+                        text = cleanedText,
+                        color = NabdColors.Ink,
                         fontSize = 15.sp,
                         lineHeight = 24.sp,
                         style = TextStyle(
@@ -166,14 +214,12 @@ fun MessageBubble(message: ChatMessage) {
                 }
             }
 
-            if (!isUser) {
-                VerificationBadge(
-                    level = message.verificationLevel,
-                    sourceRequirement = message.sourceRequirement
-                )
-            }
-            
-            if (!isUser && message.tps != null) {
+            VerificationBadge(
+                level = message.verificationLevel,
+                sourceRequirement = message.sourceRequirement
+            )
+
+            if (message.tps != null) {
                 Text(
                     text = String.format("⚡ %.1f TPS", message.tps),
                     fontSize = 10.sp,
@@ -182,7 +228,7 @@ fun MessageBubble(message: ChatMessage) {
                 )
             }
 
-            if (!isUser && message.text.isNotBlank()) {
+            if (message.text.isNotBlank()) {
                 IconButton(
                     onClick = {
                         clipboardManager.setText(AnnotatedString(message.text))
@@ -200,11 +246,6 @@ fun MessageBubble(message: ChatMessage) {
                     )
                 }
             }
-        }
-
-        if (isUser) {
-            Spacer(modifier = Modifier.width(8.dp))
-            UserAvatar()
         }
     }
 }

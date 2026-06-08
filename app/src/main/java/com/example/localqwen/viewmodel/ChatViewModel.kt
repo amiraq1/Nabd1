@@ -270,18 +270,9 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // 1. Safe Copy to internal cache to prevent URI permission expiration
-                val localFile = copyUriToLocalFile(uri, fileName)
-                if (localFile == null) {
-                    _uiState.update { 
-                        it.copy(
-                            statusEvent = StatusEvent.Error("تعذر الوصول للملف. تأكد من وجود مساحة كافية."),
-                            isProcessingDocument = false
-                        )
-                    }
-                    return@launch
-                }
-
+                // 1. Safe Copy to internal cache using UriFileResolver
+                val localPath = com.example.localqwen.utils.UriFileResolver.copyUriToCache(getApplication<Application>(), uri, "doc_")
+                val localFile = java.io.File(localPath)
 
                 val localUri = Uri.fromFile(localFile)
 
@@ -320,24 +311,6 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             }
-        }
-    }
-
-    private suspend fun copyUriToLocalFile(uri: Uri, fileName: String): File? = withContext(Dispatchers.IO) {
-        val context = getApplication<Application>()
-        val attachmentsDir = File(context.cacheDir, "attachments").apply { mkdirs() }
-        val destFile = File(attachmentsDir, "${UUID.randomUUID()}_$fileName")
-        
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                destFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            destFile
-        } catch (e: Exception) {
-            Log.e("ChatViewModel", "Failed to copy URI to local file", e)
-            null
         }
     }
 
@@ -656,8 +629,9 @@ class ChatViewModel @Inject constructor(
                         
                         val now = SystemClock.elapsedRealtime()
                         if (now - lastUpdate > 32) { // Buffer tokens for 32ms (~30 FPS max updates)
+                            // Perform heavy string processing on IO thread before switching to Main
+                            val cleaned = cleanForDisplay(output.toString(), preserveMarkdown = false)
                             withContext(Dispatchers.Main) {
-                                val cleaned = cleanForDisplay(output.toString(), preserveMarkdown = false)
                                 updateAssistantMessageInternal(cleaned, renderMarkdown = false)
                             }
                             lastUpdate = now
@@ -703,13 +677,24 @@ class ChatViewModel @Inject constructor(
                 if (finalRaw.isNotBlank()) finalRaw.trim() else "(لم يتم توليد رد)"
             }
             
+            lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
+            
+            val elapsedMs = lastGenerationDurationMs ?: 0L
+            val ttftMs = lastFirstTokenLatencyMs ?: 0L
+            
+            val decodeTimeMs = maxOf(1L, elapsedMs - ttftMs)
+            val decodeSeconds = decodeTimeMs / 1000.0
+            
+            val calculatedTps = if (decodeSeconds > 0.0 && tokenCount > 0) tokenCount / decodeSeconds else 0.0
+            
+            android.util.Log.d("ChatTPS", "tokens=$tokenCount totalMs=$elapsedMs ttftMs=$ttftMs decodeMs=$decodeTimeMs decodeTps=$calculatedTps")
+
             withContext(Dispatchers.Main) {
-                updateAssistantMessageInternal(finalText, renderMarkdown = true)
+                updateAssistantMessageInternal(finalText, renderMarkdown = true, tps = if (calculatedTps > 0) calculatedTps else null)
             }
             
             lastAssistantResponse = finalText
             lastResponseCharCount = finalText.length
-            lastGenerationDurationMs = SystemClock.elapsedRealtime() - generationStartedAt
 
             saveActiveSessionDebounced(autoTitle = autoTitle, firstUserMessage = firstUserMessage, immediate = true)
             _uiState.update { it.copy(statusEvent = StatusEvent.Success("جاهز"), state = ChatState.IDLE) }

@@ -180,13 +180,16 @@ class ModelViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val success = withContext(Dispatchers.IO) {
-                    val targetFile = mManager.modelFile(model)
-                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
-                        targetFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
+                    try {
+                        val localPath = com.example.localqwen.utils.UriFileResolver.copyUriToCache(getApplication<Application>(), uri, "model_")
+                        val targetFile = mManager.modelFile(model)
+                        val sourceFile = java.io.File(localPath)
+                        sourceFile.copyTo(targetFile, overwrite = true)
+                        sourceFile.delete()
+                        true
+                    } catch (e: Exception) {
+                        false
                     }
-                    true
                 }
 
                 if (success && mManager.isModelReady(model)) {
@@ -336,10 +339,7 @@ class ModelViewModel @Inject constructor(
     }
 
     fun onAppBackgrounded() {
-        viewModelScope.launch {
-            mManager.unloadModel()
-            Log.d("ModelVM", "App in background, model unloaded to save RAM")
-        }
+        Log.d("ModelVM", "App in background. Model kept in memory unless OS forces kill.")
     }
 
     fun onAppForegrounded() {

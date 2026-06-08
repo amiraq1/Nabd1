@@ -36,7 +36,10 @@ class PdfProcessingWorker(
         val uri = Uri.parse(uriString)
 
         return try {
-            val extractedText = extractPdfText(uri, title, pageLimit)
+            val localPath = com.example.localqwen.utils.UriFileResolver.copyUriToCache(applicationContext, uri, "pdf_")
+            val localUri = Uri.fromFile(java.io.File(localPath))
+
+            val extractedText = extractPdfText(localUri, title, pageLimit)
             if (extractedText.isBlank()) {
                 return failureResult("لم يتم العثور على نص واضح في ملف PDF")
             }
