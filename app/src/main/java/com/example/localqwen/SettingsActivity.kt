@@ -7,10 +7,6 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import com.example.localqwen.document.PdfSettings
-import com.example.localqwen.memory.MemoryStore
-import com.example.localqwen.ui.compose.NabdSettingsScreen
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -25,9 +21,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.activity.viewModels
+import com.example.localqwen.viewmodel.ModelViewModel
 
 @AndroidEntryPoint
 class SettingsActivity : AppCompatActivity() {
+
+    private val modelViewModel: ModelViewModel by viewModels()
 
     private var currentModelDescription: String = ""
     private var currentModelStatus: String = ""
@@ -48,8 +48,6 @@ class SettingsActivity : AppCompatActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val modelViewModel = androidx.lifecycle.ViewModelProvider(this)[com.example.localqwen.viewmodel.ModelViewModel::class.java]
 
         currentModelDescription = intent.getStringExtra(EXTRA_MODEL_DESCRIPTION).orEmpty()
         currentModelStatus = intent.getStringExtra(EXTRA_MODEL_STATUS).orEmpty()
@@ -109,310 +107,6 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
-    }
-
-    private fun showAccountAppDialog() {
-        val memoryEnabledLabel = memoryStatusLabel()
-        val items = arrayOf(
-            "ذاكرة نبض ($memoryEnabledLabel)",
-            "عرض الذاكرة",
-            "مسح الذاكرة",
-            "مساعدة نبض",
-            "ما الجديد في نبض\nآخر تحسينات النسخة التجريبية",
-            "إرسال ملاحظة للمطور\nاكتب مشكلة أو اقتراحًا للمساعدة في تحسين نبض",
-            "إنشاء تقرير اختبار Gemma\nللتأكد من نظام تشخيص الأخطاء",
-            "حول نبض",
-            "سياسة الخصوصية",
-            "نسخ تقرير بيتا"
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("الحساب والتطبيق")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_TOGGLE_MEMORY)
-                    1 -> finishWithAction(ACTION_SHOW_MEMORY)
-                    2 -> confirmAction(
-                        title = "مسح ذاكرة نبض؟",
-                        message = "سيتم حذف عناصر الذاكرة المحفوظة على هذا الجهاز.",
-                        action = ACTION_CLEAR_MEMORY
-                    )
-                    3 -> finishWithAction(ACTION_HELP)
-                    4 -> finishWithAction(ACTION_WHATS_NEW)
-                    5 -> finishWithAction(ACTION_SEND_FEEDBACK)
-                    6 -> finishWithAction(ACTION_TRIGGER_TEST_REPORT)
-                    7 -> finishWithAction(ACTION_ABOUT)
-                    8 -> finishWithAction(ACTION_PRIVACY_POLICY)
-                    9 -> finishWithAction(ACTION_COPY_BETA_REPORT)
-                }
-            }
-            .show()
-    }
-
-    private fun isPositiveStatus(value: String): Boolean {
-        val normalized = value.trim()
-        if (normalized.isBlank() || normalized.contains("غير")) return false
-        return normalized.contains("جاهز") || normalized.contains("مستورد") || normalized.contains("Ready", ignoreCase = true)
-    }
-
-    private fun showModelsDialog() {
-        val items = arrayOf(
-            "Gemma 3 Multimodal (${currentModelGemma3Status.ifBlank { "غير مستورد" }})",
-            "Gemma E2B (${currentModelE2bStatus.ifBlank { "غير مستورد" }})",
-            "Gemma E4B (${currentModelE4bStatus.ifBlank { "غير مستورد" }})",
-            "نموذج الرؤية الإضافي (${currentModelVisionStatus.ifBlank { "غير مستورد" }})",
-            "نموذج التضمين (${embeddingModelStatus.ifBlank { "غير مستورد" }})",
-            "فحص الجاهزية\nتحقق من النماذج والمساحة قبل التشغيل",
-            "دليل استيراد النماذج\nشرح سريع لاختيار واستيراد النماذج",
-            "تشخيص نموذج الذكاء"
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("النماذج")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_MANAGE_MODEL_GEMMA3)
-                    1 -> finishWithAction(ACTION_MANAGE_MODEL_E2B)
-                    2 -> finishWithAction(ACTION_MANAGE_MODEL_E4B)
-                    3 -> {
-                        if (isPositiveStatus(currentModelVisionStatus)) {
-                            confirmAction(
-                                title = "حذف نموذج الرؤية الإضافي؟",
-                                message = "يمكنك استيراده مرة أخرى لاحقًا من ملف النموذج.",
-                                action = ACTION_DELETE_VISION_MODEL
-                            )
-                        } else {
-                            finishWithAction(ACTION_IMPORT_VISION_MODEL)
-                        }
-                    }
-                    4 -> showEmbeddingModelSubDialog()
-                    5 -> finishWithAction(ACTION_READINESS_CHECK)
-                    6 -> finishWithAction(ACTION_MODEL_IMPORT_HELP)
-                    7 -> finishWithAction(ACTION_LITERT_DIAGNOSTICS)
-                }
-            }
-            .show()
-    }
-
-    private fun showEmbeddingModelSubDialog() {
-        val items = arrayOf("استيراد نموذج تضمين", "حذف نموذج التضمين", "محرك التضمين")
-        MaterialAlertDialogBuilder(this)
-            .setTitle("نموذج التضمين")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_IMPORT_EMBEDDING_MODEL)
-                    1 -> confirmAction(
-                        title = "حذف نموذج التضمين؟",
-                        message = "سيتم حذف نموذج التضمين المحلي فقط، ولن تتأثر محادثاتك.",
-                        action = ACTION_DELETE_EMBEDDING_MODEL
-                    )
-                    2 -> showEmbeddingBackendDialog()
-                }
-            }
-            .show()
-    }
-
-    private fun showDocumentsSearchDialog() {
-        val items = arrayOf(
-            "مكتبة المستندات",
-            "طول إجابة المستند (${documentAnswerLengthLabel(currentDocumentAnswerLength)})",
-            "حد صفحات PDF (${pdfPageLimitLabel(currentPdfPageLimit)})",
-            "وضع البحث (${ragSearchModeLabel(currentRagSearchMode)})",
-            "إنشاء فهرس دلالي${selectedDocumentTitle?.let { "\n$it" } ?: "\nاختر مستندًا أولًا"}",
-            "حذف الفهارس الدلالية ($embeddingIndexCount)",
-            "تشخيص البحث الدلالي",
-            if (selectedDocumentTitle != null) "إلغاء اختيار المستند\n$selectedDocumentTitle" else "لا يوجد مستند محدد"
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("المستندات والبحث")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_OPEN_DOCUMENT_LIBRARY)
-                    1 -> showDocumentAnswerLengthDialog()
-                    2 -> showPdfPageLimitDialog()
-                    3 -> showRagSearchModeDialog()
-                    4 -> {
-                        if (selectedDocumentTitle == null) {
-                            showInfoDialog("لا يوجد مستند نشط", "أرفق PDF أو ملف نصي أولًا، ثم ارجع لإنشاء الفهرس الدلالي.")
-                        } else {
-                            finishWithAction(ACTION_BUILD_DOCUMENT_SEMANTIC_INDEX)
-                        }
-                    }
-                    5 -> confirmAction(
-                        title = "حذف الفهارس الدلالية؟",
-                        message = "سيعاد بناؤها عند الحاجة من المستندات المحفوظة.",
-                        action = ACTION_DELETE_EMBEDDING_INDEXES
-                    )
-                    6 -> finishWithAction(ACTION_RAG_DIAGNOSTICS)
-                    7 -> {
-                        if (selectedDocumentTitle == null) {
-                            showInfoDialog("لا يوجد مستند محدد", "لا يوجد مستند نشط لإلغاء تحديده.")
-                        } else {
-                            finishWithAction(ACTION_CLEAR_SELECTED_DOCUMENT)
-                        }
-                    }
-                }
-            }
-            .show()
-    }
-
-    private fun showConversationsDialog() {
-        val items = arrayOf(
-            "سجل المحادثات",
-            "نسخ المحادثة",
-            "نسخ آخر رد",
-            "مسح المحادثة الحالية"
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("المحادثات")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_OPEN_CHAT_HISTORY)
-                    1 -> finishWithAction(ACTION_COPY_CHAT)
-                    2 -> finishWithAction(ACTION_COPY_LAST_RESPONSE)
-                    3 -> confirmAction(
-                        title = "مسح المحادثة الحالية؟",
-                        message = "سيتم بدء محادثة جديدة مع حفظ السجل المحلي حسب إعدادات التطبيق.",
-                        action = ACTION_CLEAR_CHAT
-                    )
-                }
-            }
-            .show()
-    }
-
-    private fun showToolsDialog() {
-        val items = arrayOf(
-            "أدوات الهاتف (البطارية، الجهاز)",
-            "أداة الخريطة",
-            "الأماكن المحفوظة",
-            "مهام الخلفية"
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("الأدوات")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> finishWithAction(ACTION_LOCAL_MODEL_MANAGER)
-                    1 -> showInfoDialog("أداة الخريطة", "واجهة إدارة الخريطة والأماكن يمكن إضافتها كشاشة مستقلة في المرحلة القادمة.")
-                    2 -> showInfoDialog("الأماكن المحفوظة", "الأماكن المحفوظة تبقى محلية على الجهاز، وسيظهر مديرها هنا عند اكتمال الواجهة.")
-                    3 -> finishWithAction(ACTION_BACKGROUND_TASKS)
-                }
-            }
-            .show()
-    }
-
-    private fun showDocumentAnswerLengthDialog() {
-        val values = arrayOf("short", "medium", "long")
-        val labels = values.map { documentAnswerLengthLabel(it) }.toTypedArray()
-        val selectedIndex = values.indexOf(currentDocumentAnswerLength).coerceAtLeast(0)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("طول إجابة المستند")
-            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
-                dialog.dismiss()
-                finishWithAction(ACTION_SET_DOCUMENT_ANSWER_LENGTH, values[which])
-            }
-            .setNegativeButton("إلغاء", null)
-            .show()
-    }
-
-    private fun showRagSearchModeDialog() {
-        val values = arrayOf("auto", "keyword", "semantic")
-        val labels = values.map { ragSearchModeLabel(it) }.toTypedArray()
-        val selectedIndex = values.indexOf(currentRagSearchMode).coerceAtLeast(0)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("وضع البحث في المستندات")
-            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
-                dialog.dismiss()
-                finishWithAction(ACTION_SET_RAG_SEARCH_MODE, values[which])
-            }
-            .setNegativeButton("إلغاء", null)
-            .show()
-    }
-
-    private fun showPdfPageLimitDialog() {
-        val limits = intArrayOf(3, 10, 25, 50)
-        val labels = limits.map { pdfPageLimitLabel(it) }.toTypedArray()
-        val selectedIndex = limits.indexOf(currentPdfPageLimit).let { if (it >= 0) it else 1 }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("حد صفحات PDF")
-            .setMessage("عدد الصفحات التي يحللها نبض من ملفات PDF")
-            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
-                dialog.dismiss()
-                finishWithAction(ACTION_SET_PDF_PAGE_LIMIT, limits[which].toString())
-            }
-            .setNegativeButton("إلغاء", null)
-            .show()
-    }
-
-    private fun showEmbeddingBackendDialog() {
-        val values = arrayOf("auto", "mediapipe", "tflite")
-        val labels = values.map { embeddingBackendLabel(it) }.toTypedArray()
-        val selectedIndex = values.indexOf(currentEmbeddingBackend).coerceAtLeast(0)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("محرك التضمين")
-            .setSingleChoiceItems(labels, selectedIndex) { dialog, which ->
-                dialog.dismiss()
-                finishWithAction(ACTION_SET_EMBEDDING_BACKEND, values[which])
-            }
-            .setNegativeButton("إلغاء", null)
-            .show()
-    }
-
-    private fun confirmAction(title: String, message: String, action: String, value: String? = null) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("إلغاء", null)
-            .setPositiveButton("تأكيد") { _, _ -> finishWithAction(action, value) }
-            .show()
-    }
-
-    private fun showInfoDialog(title: String, message: String) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton("حسنًا", null)
-            .show()
-    }
-
-    private fun memoryStatusLabel(): String {
-        return if (MemoryStore(this).isMemoryEnabled()) "مفعّلة" else "معطّلة"
-    }
-
-    private fun appVersionLabel(): String {
-        return if (appVersion.isBlank()) "نسخة تجريبية" else "v$appVersion"
-    }
-
-    private fun documentAnswerLengthLabel(value: String): String {
-        return when (value) {
-            "medium" -> "متوسط"
-            "long" -> "مفصل"
-            else -> "مختصر"
-        }
-    }
-
-    private fun ragSearchModeLabel(value: String): String {
-        return when (value) {
-            "keyword" -> "بحث نصي"
-            "semantic" -> "بحث دلالي"
-            else -> "تلقائي"
-        }
-    }
-
-    private fun pdfPageLimitLabel(limit: Int): String {
-        return "$limit صفحات"
-    }
-
-    private fun embeddingBackendLabel(value: String): String {
-        return when (value) {
-            "mediapipe" -> "MediaPipe"
-            "tflite" -> "TensorFlow Lite"
-            else -> "تلقائي"
-        }
-    }
-
-    private fun finishWithAction(action: String, value: String? = null) {
-        val intent = Intent().putExtra(EXTRA_ACTION, action)
-        if (value != null) intent.putExtra(EXTRA_VALUE, value)
-        setResult(Activity.RESULT_OK, intent)
-        finish()
     }
 
     companion object {

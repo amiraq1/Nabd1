@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import com.example.localqwen.model.ModelManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -22,7 +23,8 @@ import javax.inject.Singleton
 @Singleton
 class GemmaImageAnalyzer @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val engine: NabdInferenceEngine
+    private val engine: NabdInferenceEngine,
+    private val modelManager: ModelManager
 ) : AutoCloseable {
 
     var currentStage: String = "idle"
@@ -31,14 +33,22 @@ class GemmaImageAnalyzer @Inject constructor(
     var lastTempImagePath: String? = null
         private set
 
+    private var previousTextModelId: String? = null
+
     suspend fun loadModel(modelPath: String) {
         currentStage = "loadModel"
         Log.d(TAG, "Starting model load from: $modelPath")
+        // Save current text model ID and lock state to vision model
+        previousTextModelId = modelManager.getActiveModelId()
+        modelManager.setActiveModelId(VISION_MODE_TAG)
         withContext(Dispatchers.IO) {
             try {
                 engine.load(modelPath, context.cacheDir.absolutePath, "gpu")
                 Log.d(TAG, "Model loaded successfully")
             } catch (e: Exception) {
+                // Restore on failure
+                modelManager.setActiveModelId(previousTextModelId)
+                previousTextModelId = null
                 Log.e(TAG, "Model load failed", e)
                 throw e
             }
@@ -47,10 +57,11 @@ class GemmaImageAnalyzer @Inject constructor(
 
     override fun close() {
         Log.d(TAG, "Unloading image analyzer resources...")
-        // Since engine is a singleton, we don't necessarily want to close it here
-        // unless we are sure it's not used elsewhere.
-        // For now, we follow the previous pattern.
-        // engine.close() 
+        // Restore the text model ID now that vision analysis is done
+        if (previousTextModelId != null) {
+            modelManager.setActiveModelId(previousTextModelId)
+            previousTextModelId = null
+        }
     }
 
     fun unload() = close()
@@ -150,6 +161,10 @@ class GemmaImageAnalyzer @Inject constructor(
         private const val TAG = "GemmaImageAnalyzer"
         private const val TEMP_FILE_PREFIX = "vision_temp_"
         private const val TEMP_FILE_SUFFIX = ".jpg"
+
+        // Sentinel value — unlike any real model ID — so LiteRtLmInferenceEngine
+        // can detect that vision weights are active and refuse/roll back text generation.
+        const val VISION_MODE_TAG = "VISION_MODE_ACTIVE"
 
         private fun secureDeleteFile(file: File) {
             try {

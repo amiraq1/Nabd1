@@ -38,8 +38,13 @@ class ModelManager @Inject constructor(
     val modelLoadingState: StateFlow<ModelLoadingState> = _modelLoadingState.asStateFlow()
 
     private var activeEngine: NabdInferenceEngine? = null
-    private var currentModelId: String? = null
+    @Volatile private var currentModelId: String? = null
     private val modelLock = Mutex()
+
+    fun getActiveModelId(): String? = currentModelId
+    fun setActiveModelId(id: String?) { currentModelId = id }
+
+    fun getDefaultTextModelId(): String? = SUPPORTED_MODELS.firstOrNull()?.id
 
     init {
         context.registerComponentCallbacks(this)
@@ -129,7 +134,7 @@ class ModelManager @Inject constructor(
         if (activeEngine != null) {
             _modelLoadingState.value = ModelLoadingState.Unloading
             try {
-                activeEngine?.close()
+                activeEngine?.closeSuspend()
                 Log.d(TAG, "ENGINE_DESTROYED: Engine closed")
             } catch (e: Exception) {
                 Log.w(TAG, "Error closing engine", e)

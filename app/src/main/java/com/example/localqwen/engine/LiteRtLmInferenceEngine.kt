@@ -2,12 +2,16 @@ package com.example.localqwen.engine
 
 import android.content.Context
 import android.util.Log
+import com.example.localqwen.model.ModelManager
 import com.google.ai.edge.litertlm.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,7 +26,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class LiteRtLmInferenceEngine @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val modelManager: dagger.Lazy<ModelManager>
 ) : NabdInferenceEngine {
 
     private val engineLock = Mutex()
@@ -104,39 +109,94 @@ class LiteRtLmInferenceEngine @Inject constructor(
     override fun isReady(): Boolean = !isReleased.get() && engine != null && conversation != null
 
     override fun generate(prompt: String): Flow<String> {
-        if (isReleased.get() || engine == null) return emptyFlow()
-        val currentConversation = conversation ?: return emptyFlow()
-        return currentConversation.sendMessageAsync(prompt).map { it.toString() }
+        // Safety valve: prevent text generation while vision weights are active
+        val mm = modelManager.get()
+        val activeId = mm.getActiveModelId()
+        if (activeId == GemmaImageAnalyzer.VISION_MODE_TAG) {
+            Log.w(TAG, "Desync detected! Vision mode active while generate() called. Forcing rollback.")
+            val textModelId = mm.getDefaultTextModelId()
+            if (textModelId != null) {
+                mm.setActiveModelId(textModelId)
+            }
+            // Reload the text model
+            val textPath = mm.getModelById(textModelId ?: "")
+                ?.let { mm.modelPath(it) }
+            if (textPath != null) {
+                try {
+                    runBlocking { load(textPath, context.cacheDir.absolutePath) }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Rollback load failed", e)
+                    return flow { emit("\n⚠️ [خطأ في النظام: فشل استعادة نموذج النص. ${e.localizedMessage ?: "خطأ غير معروف"}]") }
+                }
+            } else {
+                return flow { emit("\n⚠️ [خطأ في النظام: لا يوجد نموذج نص لاستعادته.]") }
+            }
+        }
+
+        if (isReleased.get()) {
+            return flow { emit("\n⚠️ [تم تحرير المحرك. يتعذر بدء التوليد.]") }
+        }
+        val currentConversation = conversation ?: return flow {
+            emit("\n⚠️ [المحرك غير جاهز. جرّب إعادة استيراد النموذج.]")
+        }
+        val currentEngine = engine ?: return flow {
+            emit("\n⚠️ [المحرك غير جاهز. جرّب إعادة استيراد النموذج.]")
+        }
+
+        return currentConversation.sendMessageAsync(prompt).map { it.toString() }.catch { e ->
+            Log.e(TAG, "Text inference critical failure", e)
+            emit("\n⚠️ [خطأ في النظام: تعذر توليد الإجابة. ${e.localizedMessage ?: "انهيار غير معروف في المحرك"}]")
+        }
     }
 
     override fun generateVision(imagePath: String, prompt: String): Flow<String> {
-        if (isReleased.get() || engine == null) return emptyFlow()
-        val currentConversation = conversation ?: return emptyFlow()
+        val mm = modelManager.get()
+        val activeId = mm.getActiveModelId()
+        if (activeId != GemmaImageAnalyzer.VISION_MODE_TAG) {
+            Log.w(TAG, "State mismatch: vision generation requested but model is $activeId. Proceeding anyway.")
+        }
+
+        if (isReleased.get()) {
+            return flow { emit("\n⚠️ [تم تحرير المحرك. يتعذر تحليل الصورة.]") }
+        }
+        val currentConversation = conversation ?: return flow {
+            emit("\n⚠️ [المحرك غير جاهز لتحليل الصور. جرّب إعادة استيراد النموذج.]")
+        }
+        val currentEngine = engine ?: return flow {
+            emit("\n⚠️ [المحرك غير جاهز لتحليل الصور.]")
+        }
         
         val contents = Contents.of(
             Content.ImageFile(imagePath),
             Content.Text(prompt)
         )
 
-        return currentConversation.sendMessageAsync(contents).map { it.toString() }
+        return currentConversation.sendMessageAsync(contents).map { it.toString() }.catch { e ->
+            Log.e(TAG, "Vision inference critical failure", e)
+            emit("\n⚠️ [خطأ في النظام: تعذر تحليل الصورة. ${e.localizedMessage ?: "انهيار غير معروف في محرك الرؤية"}]")
+        }
     }
 
-    override fun resetConversation() {
-        runBlocking {
-            engineLock.withLock {
-                val currentEngine = engine ?: return@withLock
-                try {
-                    conversation?.close()
-                } catch (_: Exception) {}
-                
-                conversation = currentEngine.createConversation()
-            }
+    override suspend fun resetConversation() = withContext(Dispatchers.IO) {
+        engineLock.withLock {
+            val currentEngine = engine ?: return@withLock
+            try {
+                conversation?.close()
+            } catch (_: Exception) {}
+            
+            conversation = currentEngine.createConversation()
         }
     }
 
     override fun close() {
         if (isReleased.compareAndSet(false, true)) {
-            runBlocking { unload() }
+            GlobalScope.launch(Dispatchers.IO) { unload() }
+        }
+    }
+
+    override suspend fun closeSuspend() {
+        if (isReleased.compareAndSet(false, true)) {
+            unload()
         }
     }
 }

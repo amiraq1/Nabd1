@@ -19,9 +19,12 @@ interface NabdInferenceEngine : AutoCloseable {
     
     fun generateVision(imagePath: String, prompt: String): Flow<String>
 
-    fun resetConversation() {}
+    suspend fun resetConversation() {}
+
+    suspend fun closeSuspend() {}
 
     override fun close() {
-        // Implementers should handle synchronous cleanup or provide a suspend version if needed.
+        // Override in implementations to avoid runBlocking on the main thread.
+        // Use closeSuspend() for synchronous cleanup from coroutine context.
     }
 }

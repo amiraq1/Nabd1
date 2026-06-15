@@ -460,11 +460,7 @@ class ChatViewModel @Inject constructor(
 
         generationJob = viewModelScope.launch {
             try {
-                // 1. Mandatory Native Purge: Reset conversation before EVERY turn to prevent KV cache accumulation
-                withContext(Dispatchers.IO) {
-                    engine?.resetConversation()
-                }
-
+                // KV cache preserved across turns for maximum context efficiency
                 val selectedDocument = getSelectedDocumentAsync()
                 val contextResult = try {
                     withContext(Dispatchers.IO) {

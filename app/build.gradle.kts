@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 6
-        versionName = "0.2.15-isolated"
+        versionName = "0.8.0"
     }
 
     buildTypes {
@@ -105,6 +105,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
     // Testing
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.1.10")
     testImplementation("junit:junit:4.13.2")
 }
 
